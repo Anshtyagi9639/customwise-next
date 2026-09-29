@@ -232,7 +232,13 @@ export const blogPosts: BlogPost[] = [
         "label": "Importing POAO",
         "href": "/food-customs/products-of-animal-origin"
       }
-    ]
+    ],
+    "image": {
+      "src": "/images/blog/Understanding the UK IPAFFS System for UK Food Importers.avif",
+      "alt": "Supermarket shelves stacked with crates of fresh fruit and vegetables",
+      "width": 407,
+      "height": 305
+    }
   },
   // Source: Transfer of Residence Ireland.docx
   {
@@ -536,7 +542,13 @@ export const blogPosts: BlogPost[] = [
         "href": "/services#worldwide-customs-clearance"
       }
     ],
-    "date": "2025-12-01"
+    "date": "2025-12-01",
+    "image": {
+      "src": "/images/blog/India-uk trade deal 2025%3B.avif",
+      "alt": "The Indian and UK prime ministers at lecterns in front of Indian and Union flags",
+      "width": 428,
+      "height": 285
+    }
   },
   // Source: How Businesses can take advantage of Northern Ireland's Dual Access.docx
   {
@@ -905,7 +917,13 @@ export const blogPosts: BlogPost[] = [
         "href": "/services#worldwide-customs-clearance"
       }
     ],
-    "date": "2025-08-12"
+    "date": "2025-08-12",
+    "image": {
+      "src": "/images/blog/The End of the U.S. De Minimis Rule.avif",
+      "alt": "Cardboard parcels moving along a conveyor belt in a fulfilment warehouse",
+      "width": 398,
+      "height": 265
+    }
   },
   // Source: Enhancing EU-Canada Trade.docx
   {
@@ -990,7 +1008,13 @@ export const blogPosts: BlogPost[] = [
         "href": "/services#export-customs-clearance"
       }
     ],
-    "date": "2025-08-07"
+    "date": "2025-08-07",
+    "image": {
+      "src": "/images/blog/Enhancing EU-Canada Trade.avif",
+      "alt": "The European Union and Canadian flags side by side",
+      "width": 740,
+      "height": 361
+    }
   },
   // Source: Brexit Five Years On.docx
   {

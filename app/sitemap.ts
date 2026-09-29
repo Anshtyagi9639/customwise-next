@@ -11,6 +11,7 @@ const routes: { path: string; priority: number; changeFrequency: MetadataRoute.S
   { path: "/food-customs/catch-certificates", priority: 0.8, changeFrequency: "monthly" },
   { path: "/food-customs/fresh-produce", priority: 0.8, changeFrequency: "monthly" },
   { path: "/industries", priority: 0.7, changeFrequency: "monthly" },
+  { path: "/blog", priority: 0.7, changeFrequency: "weekly" },
   { path: "/insights", priority: 0.7, changeFrequency: "weekly" },
   { path: "/insights/cbam", priority: 0.7, changeFrequency: "monthly" },
   { path: "/insights/eudr", priority: 0.7, changeFrequency: "monthly" },

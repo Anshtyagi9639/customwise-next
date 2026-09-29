@@ -13,6 +13,7 @@ const quickLinks = [
   { label: "Industries", href: "/industries" },
   { label: "FAQs", href: "/faqs" },
   { label: "Contact", href: "/contact" },
+  { label: "Blog", href: "/blog" },
 ];
 
 const heading = "mb-4 font-sans text-[0.8rem] font-bold tracking-[0.12em] text-cargo uppercase";

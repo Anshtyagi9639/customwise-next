@@ -36,7 +36,7 @@ export type BlogPost = {
   date?: string;
   /** Reading time as given in the source. */
   readMinutes?: number;
-  /** Optional: four source articles have no image, and none is substituted. */
+  /** Optional: a post without a supplied image shows a text panel; no image is substituted. */
   image?: ImageAsset & { caption?: string };
   body: BlogBlock[];
   /** Relevant Customs Wise pages, shown beside the article. */

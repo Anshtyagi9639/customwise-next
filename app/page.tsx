@@ -67,7 +67,7 @@ export default function HomePage() {
             intro="Practical guidance from the Customs Wise team on the customs rules that affect your goods."
             action={
               <Button asChild variant="outline">
-                <Link href="/insights">View all insights</Link>
+                <Link href="/blog">View all Blog</Link>
               </Button>
             }
           />
