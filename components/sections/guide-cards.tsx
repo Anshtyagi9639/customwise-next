@@ -6,7 +6,7 @@ import { insightCategories } from "@/lib/content";
 import type { Guide } from "@/types";
 import { imageQuality } from "@/lib/content/images";
 
-/** Article cards: the whole card opens the article; the category label links to its category on /insights. */
+/** Article cards: the whole card opens the article; the category label links to /blog or to its category on /insights. */
 export function GuideCards({ guides, headingLevel = "h3" }: { guides: Guide[]; headingLevel?: "h2" | "h3" }) {
   const Heading = headingLevel;
   return (
@@ -26,7 +26,7 @@ export function GuideCards({ guides, headingLevel = "h3" }: { guides: Guide[]; h
               <div className="flex flex-1 flex-col px-5.5 pt-5 pb-6">
                 <p className="mb-1.5 flex flex-wrap items-center gap-x-2 text-[0.8rem] font-bold">
                   {cat && (
-                    <Link href={`/insights#${cat.slug}`} className="relative z-10 text-freight underline-offset-3 hover:underline">
+                    <Link href={cat.slug === "blog" ? "/blog" : `/insights#${cat.slug}`} className="relative z-10 text-freight underline-offset-3 hover:underline">
                       {cat.label}
                     </Link>
                   )}

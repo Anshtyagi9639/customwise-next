@@ -14,7 +14,7 @@ export function RelatedPosts({ post }: { post: BlogPost }) {
           title="Related articles"
           id="related-posts-title"
           action={
-            <Link href="/insights#blog" className="font-semibold text-atlantic underline underline-offset-3 hover:text-freight">
+            <Link href="/blog" className="font-semibold text-atlantic underline underline-offset-3 hover:text-freight">
               All articles
             </Link>
           }

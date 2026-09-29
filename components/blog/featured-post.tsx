@@ -38,7 +38,7 @@ export function FeaturedPost({ post }: { post: BlogPostSummary }) {
         )}
       </div>
       <div className="flex flex-col justify-center p-6 sm:p-9 lg:p-11">
-        <p className="mb-3 text-[0.8rem] font-bold tracking-[0.14em] text-freight uppercase">Latest insight</p>
+        <p className="mb-3 text-[0.8rem] font-bold tracking-[0.14em] text-freight uppercase">Latest Blog</p>
         <PostMeta post={post} className="mb-3" />
         <h3 id="featured-post-title" className="text-[clamp(1.8rem,3vw,2.5rem)]">
           <Link href={href} className="hover:text-freight">
