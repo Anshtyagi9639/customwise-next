@@ -60,7 +60,7 @@ export default async function ContactPage({ searchParams }: ContactPageProps) {
       <section id="enquiry" aria-labelledby="enquiry-title" className="scroll-mt-[calc(var(--nav-h)+1rem)] py-16 sm:py-20">
         <div data-reveal className="container-site grid items-start gap-12 lg:grid-cols-[1fr_1.15fr] lg:gap-20">
           <div>
-            <p className="mb-3 text-[0.95rem] font-semibold tracking-wide text-freight">Get an Enquiry</p>
+            <p className="mb-3 text-[0.95rem] font-semibold tracking-wide text-freight">Make an Enquiry</p>
             <h2 id="enquiry-title" className="text-[clamp(2rem,3.6vw,3rem)]">Tell us what you need to move</h2>
             <p className="mt-4 text-ink-soft">
               Share the commodity, origin, destination and route. Our team replies with the documents and steps your shipment needs.

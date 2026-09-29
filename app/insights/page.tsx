@@ -3,7 +3,6 @@ import { BlogExplorer } from "@/components/blog/blog-explorer";
 import { FeaturedPost } from "@/components/blog/featured-post";
 import { CTASection } from "@/components/sections/cta-section";
 import { GuideCards } from "@/components/sections/guide-cards";
-import { NewsletterSection } from "@/components/sections/newsletter-section";
 import { PageHero } from "@/components/sections/page-hero";
 import { SectionHeading } from "@/components/sections/section-heading";
 import { JsonLd } from "@/components/ui/json-ld";
@@ -78,7 +77,6 @@ export default function InsightsPage() {
         </section>
       ))}
       <CTASection title="Need help with your customs requirements?" />
-      <NewsletterSection />
     </>
   );
 }

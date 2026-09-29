@@ -55,7 +55,7 @@ export default function ServicesPage() {
             </p>
           </div>
           <ul className="grid gap-3.5 sm:grid-cols-2">
-            {services.map((s, i) => (
+            {services.map((s) => (
               <li key={s.slug}>
                 <Link
                   href={`#${s.slug}`}
@@ -63,7 +63,6 @@ export default function ServicesPage() {
                 >
                   <BrandIcon src={s.icon} size={44} className="size-11 shrink-0" />
                   <span>
-                    <span className="block text-[0.78rem] font-bold tracking-wider text-freight">0{i + 1}</span>
                     <span className="mt-0.5 block font-display text-[1.3rem] leading-tight text-atlantic group-hover:text-freight">{s.title}</span>
                     <span className="mt-1.5 block text-[0.9rem] leading-snug text-ink-soft">{s.summary}</span>
                   </span>
@@ -88,8 +87,7 @@ export default function ServicesPage() {
                 </div>
               </div>
               <div>
-                <p className="text-[0.8rem] font-bold tracking-[0.14em] text-freight uppercase">Service 0{i + 1}</p>
-                <h2 id={`${s.slug}-title`} tabIndex={-1} className="mt-2 text-[clamp(1.9rem,3.2vw,2.7rem)]">
+                <h2 id={`${s.slug}-title`} tabIndex={-1} className="text-[clamp(1.9rem,3.2vw,2.7rem)]">
                   {s.title}
                 </h2>
                 {s.body.map((p, k) => (

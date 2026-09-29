@@ -18,7 +18,7 @@ export const images = {
   lorryContainers: { src: "/images/lorry-containers.jpg", alt: "Lorry carrying a container past stacked shipping containers", width: 247, height: 247 },
   shipPlane: { src: "/images/ship-and-plane-port.jpg", alt: "Cargo ship and aircraft at a container port", width: 544, height: 247 },
   fishCrates: { src: "/images/fish-market-crates.jpg", alt: "Crates of fresh fish on ice in a fish market", width: 490, height: 327 },
-  food: { src: "/images/fresh-food-flatlay.jpg", alt: "Fresh salmon, beef, eggs, vegetables and pulses laid out on a table", width: 627, height: 418 },
+  food: { src: "/images/9b447d3f904ce2f7ebf280611a62596d.webp", alt: "Fresh salmon, beef, eggs, vegetables and pulses laid out on a table", width: 976, height: 651 },
   cattle: { src: "/images/cattle-barn.jpg", alt: "Tagged calves in a barn", width: 541, height: 360 },
   produce: { src: "/images/cold-store-apples.jpg", alt: "Crates of apples in a refrigerated cold store", width: 1015, height: 555 },
   gas: { src: "/images/gas-cylinder-trailer.jpg", alt: "Gas cylinder trailer parked at a depot", width: 819, height: 542 },

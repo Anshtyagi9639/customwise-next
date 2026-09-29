@@ -36,11 +36,8 @@ export function Hero() {
         <div className="mt-9 flex w-full flex-wrap justify-center gap-3.5 sm:w-auto">
           <Button asChild className="w-full sm:w-auto">
             <Link href="/contact#enquiry">
-              Make an enquiry <ArrowRight aria-hidden />
+              Make an Enquiry <ArrowRight aria-hidden />
             </Link>
-          </Button>
-          <Button asChild variant="ghost" className="w-full sm:w-auto">
-            <Link href="/food-customs">Explore food customs</Link>
           </Button>
         </div>
       </div>

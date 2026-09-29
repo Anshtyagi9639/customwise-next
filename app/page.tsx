@@ -5,7 +5,6 @@ import { FactsBand } from "@/components/sections/facts-band";
 import { FaqList } from "@/components/sections/faq-list";
 import { FoodFeature } from "@/components/sections/food-feature";
 import { GuideCards } from "@/components/sections/guide-cards";
-import { NewsletterSection } from "@/components/sections/newsletter-section";
 import { Hero } from "@/components/sections/hero";
 import { ImageCard } from "@/components/sections/image-card";
 import { SectionHeading } from "@/components/sections/section-heading";
@@ -75,7 +74,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      <NewsletterSection />
 
       <section aria-labelledby="faq-title" className="bg-mist py-16 sm:py-24 lg:py-28">
         <div data-reveal className="container-site">

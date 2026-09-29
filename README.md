@@ -30,7 +30,6 @@ Requires Node.js 20.9 or later.
 | `EMAIL_FROM` | **Yes, for the enquiry form** | Verified sender, e.g. `Customs Wise Website <enquiries@customswise.ie>`. |
 | `EMAIL_API_URL` | Optional | Overrides the Resend endpoint (used for testing). |
 | `ENQUIRY_WEBHOOK_URL` / `ENQUIRY_WEBHOOK_SECRET` | Optional | Also posts a JSON copy of each enquiry to a CRM or automation tool. |
-| `NEWSLETTER_WEBHOOK_URL` / `NEWSLETTER_WEBHOOK_SECRET` | Optional | Newsletter sign-ups are POSTed here. Without it, the form says sign-up isn't open yet. |
 
 ### Setting up enquiry emails (Resend)
 
@@ -48,7 +47,6 @@ The visitor only sees the success message once Resend has accepted the email. If
 - **Header:** Home, About, Services, Food Customs, Industries, Insights, then **Call Us** (`tel:` link to the verified number; full button from 1280px, compact icon at 1024–1279px and on mobile) and **Get an Enquiry** (`/contact#enquiry`).
 - **Footer:** official brand icons for X, YouTube, Facebook and LinkedIn (`components/icons/social-icons.tsx`), URLs in `lib/site.ts` (`site.social`).
 - **Quick contact button** (`components/layout/quick-contact.tsx`): fixed bottom-right, opens a panel with Get an Enquiry, Call Us, Email Us and Contact Us. It fades out of the way whenever a button, link or form field sits underneath it, and is always shown when keyboard-focused.
-- **Newsletter** (`components/sections/newsletter-section.tsx`): on the homepage and Insights page.
 - **Blog:** add real posts to `lib/content/blog.ts` (instructions at the top of that file). Each post gets its own page at `/insights/blog/<slug>` and appears automatically on the homepage "Blog & Insights" section, the Insights page ("Blog" category) and the sitemap. Nothing blog-specific is shown until a post exists.
 - **Insights:** articles are grouped by category (`insightCategories` in `lib/content/index.ts`). To publish an article, add its page under `app/` and an entry to the relevant list.
 - **Motion:** subtle trade-route background (pure SVG/CSS), short page entrance (`app/template.tsx`), scroll reveals (`components/layout/reveal-observer.tsx`). All static with `prefers-reduced-motion`; content is fully visible without JavaScript.

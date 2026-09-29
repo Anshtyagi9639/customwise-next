@@ -18,8 +18,8 @@ export default function IndustriesPage() {
     <>
       <JsonLd data={[webPageSchema("/industries", title, description), breadcrumbSchema([{ name: "Industries", path: "/industries" }])]} />
       <PageHero
-        title="Industries we support"
-        intro="Every sector moves goods differently. We know the documents, licences and timings that matter in yours."
+        title="Specialist industries we support"
+        intro="Clearing some complex goods often requires in-depth technical knowledge. We have 75 employees across five countries, with expertise across a wide range of industries."
         trail={[{ name: "Industries", path: "/industries" }]}
         image={images.hero}
       />

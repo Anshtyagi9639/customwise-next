@@ -10,7 +10,7 @@ export const site = {
   tagline: "Keeping customs simple",
   url: (process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.customswise.ie").replace(/\/$/, ""),
   description:
-    "Independent customs experts in the UK and Ireland, with specialist food and POAO clearance and a partner network in more than 50 countries.",
+    "Independent Customs experts in the UK and Ireland, providing the most efficient solutions to save you time and money. With access to a global network of customs brokers providing support worldwide.",
   phone: { display: "+353 1 866 5644", href: "tel:+35318665644", e164: "+35318665644" },
   email: "info@customswise.ie",
   /** Official social profiles (confirmed by client). Shown in the footer only. */
@@ -109,6 +109,7 @@ export const mainNav: NavItem[] = [
       { label: "Incoterms® 2020 and customs", href: "/insights/incoterms" },
     ],
   },
+  { kind: "link", label: "Blog", href: "/blog" },
 ];
 
-export const primaryCta = { label: "Get an Enquiry", href: "/contact#enquiry" } as const;
+export const primaryCta = { label: "Make an Enquiry", href: "/contact#enquiry" } as const;

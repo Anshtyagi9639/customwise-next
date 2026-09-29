@@ -3,7 +3,7 @@ import "server-only";
 export type DeliveryOutcome = { delivered: true } | { delivered: false; reason: "not-configured" | "failed" };
 
 /**
- * Posts a JSON payload to a configured webhook. Used for enquiries and newsletter sign-ups so any
+ * Posts a JSON payload to a configured webhook. Used for enquiries so any
  * destination (email service, CRM, mailing-list provider, automation tool) can be connected without code changes.
  * If the webhook is not configured, nothing is stored and the caller must tell the visitor honestly.
  */

@@ -1,7 +1,6 @@
 import { BlogExplorer } from "@/components/blog/blog-explorer";
 import { FeaturedPost } from "@/components/blog/featured-post";
 import { CTASection } from "@/components/sections/cta-section";
-import { NewsletterSection } from "@/components/sections/newsletter-section";
 import { PageHero } from "@/components/sections/page-hero";
 import { JsonLd } from "@/components/ui/json-ld";
 import { blogPosts, toSummary } from "@/lib/content/blog";
@@ -48,7 +47,6 @@ export default function BlogPage() {
         </div>
       </section>
       <CTASection title="Need help with your customs requirements?" />
-      <NewsletterSection />
     </>
   );
 }

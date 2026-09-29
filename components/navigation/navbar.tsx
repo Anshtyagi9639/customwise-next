@@ -106,7 +106,7 @@ export function Navbar() {
             {mainNav.map((item) => {
               const active = isActive(item, pathname);
               const topClass = cn(
-                "flex items-center gap-1.5 rounded px-3 py-2.5 text-[0.93rem] font-semibold text-salt transition-colors hover:text-cargo data-[state=open]:text-cargo",
+                "flex items-center gap-1.5 rounded px-2 py-2.5 whitespace-nowrap xl:px-3 text-[0.93rem] font-semibold text-salt transition-colors hover:text-cargo data-[state=open]:text-cargo",
                 active && "text-cargo shadow-[inset_0_-2px_0_var(--color-cargo)]",
               );
               if (item.kind === "link") {
@@ -152,14 +152,15 @@ export function Navbar() {
           </NavigationMenu.List>
         </NavigationMenu.Root>
 
-        <a
-          href={site.phone.href}
-          aria-label={`Call us on ${site.phone.display}`}
+        {/* Desktop: opens the contact details (most desktop visitors cannot place a tel: call). The mobile icon below still dials. */}
+        <Link
+          href="/contact"
+          aria-label={`Call us on ${site.phone.display}: view our contact details`}
           className="hidden min-h-12 shrink-0 items-center justify-center gap-2 rounded-brand border-2 border-salt/55 px-3 text-[0.95rem] font-bold text-salt transition-colors hover:border-cargo hover:text-cargo lg:inline-flex xl:px-4"
         >
           <Phone aria-hidden className="size-[18px]" />
           <span className="hidden xl:inline">Call Us</span>
-        </a>
+        </Link>
         <Button asChild className="hidden shrink-0 lg:inline-flex">
           <Link href={primaryCta.href}>{primaryCta.label}</Link>
         </Button>
