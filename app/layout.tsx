@@ -35,6 +35,8 @@ export const metadata: Metadata = {
   applicationName: site.name,
   formatDetection: { telephone: false },
   robots: { index: true, follow: true },
+  // Google Search Console ownership: rendered as <meta name="google-site-verification"> in the <head> of every page.
+  verification: { google: "kd9l7B7wVoSqQGHyYY_2WVco0URUU42Q_P1ko97a3Ag" },
 };
 
 export const viewport: Viewport = {
