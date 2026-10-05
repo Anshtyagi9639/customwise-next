@@ -4,25 +4,35 @@ import { AnimatePresence, useReducedMotion } from "motion/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { primaryCta } from "@/lib/site";
+import { uWebChatUrl } from "@/lib/uwebchat";
 import { type ChatAction, type QuickActionId, type Reply, answer, quickReply, welcome } from "./chat-data";
 import { ChatbotButton } from "./chatbot-button";
 import { type Message, ChatWindow } from "./chat-window";
+import { LiveChatPanel } from "./live-chat-panel";
 
 const PANEL_ID = "cw-chat";
+const LIVE_PANEL_ID = "cw-live-chat";
+/** Null until uWebChat has been set up; the Live Chat option is hidden until then. */
+const liveChatUrl = uWebChatUrl();
 const initialMessages: Message[] = [{ id: 0, from: "bot", reply: welcome }];
 
 /**
  * Customs Wise website assistant. Runs entirely in the browser: answers come from local, pre-written site content
  * (./chat-data.ts), with no external AI service. The conversation is kept while navigating between pages.
+ * "Live Chat" hands over to uWebChat, where the Customs Wise team answers from Microsoft Teams (./live-chat-panel.tsx).
  */
 export function Chatbot() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [typing, setTyping] = useState(false);
+  // Which panel the launcher shows. uWebChat is only loaded once the visitor chooses Live Chat.
+  const [view, setView] = useState<"assistant" | "live">("assistant");
+  const [liveStarted, setLiveStarted] = useState(false);
   const nextId = useRef(1);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const livePanelRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const reduce = useReducedMotion();
 
@@ -43,8 +53,8 @@ export function Chatbot() {
 
   // Move focus into the panel when it opens (not into the text box, which would open the keyboard on phones).
   useEffect(() => {
-    if (open) panelRef.current?.focus({ preventScroll: true });
-  }, [open]);
+    if (open) (view === "live" ? livePanelRef : panelRef).current?.focus({ preventScroll: true });
+  }, [open, view]);
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
@@ -86,6 +96,11 @@ export function Chatbot() {
     else if (action.kind === "route") close(false);
   };
 
+  const startLive = () => {
+    setLiveStarted(true);
+    setView("live");
+  };
+
   const reset = () => {
     clearTimeout(timer.current);
     setTyping(false);
@@ -95,14 +110,15 @@ export function Chatbot() {
 
   return (
     <>
-      <ChatbotButton ref={buttonRef} open={open} onToggle={() => (open ? close() : setOpen(true))} controls={PANEL_ID} />
+      <ChatbotButton ref={buttonRef} open={open} onToggle={() => (open ? close() : setOpen(true))} controls={view === "live" ? LIVE_PANEL_ID : PANEL_ID} />
       <AnimatePresence>
-        {open && (
+        {open && view === "assistant" && (
           <ChatWindow
             ref={panelRef}
             id={PANEL_ID}
             messages={messages}
             typing={typing}
+            onStartLive={liveChatUrl ? startLive : undefined}
             onQuickAction={onQuickAction}
             onSend={(text) => exchange(text, answer(text))}
             onAction={onAction}
@@ -111,6 +127,9 @@ export function Chatbot() {
           />
         )}
       </AnimatePresence>
+      {liveChatUrl && liveStarted && (
+        <LiveChatPanel ref={livePanelRef} id={LIVE_PANEL_ID} src={liveChatUrl} visible={open && view === "live"} onBack={() => setView("assistant")} onClose={() => close()} />
+      )}
     </>
   );
 }

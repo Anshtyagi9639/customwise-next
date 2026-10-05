@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
+import Script from "next/script";
 import { Chatbot } from "@/components/chatbot/chatbot";
 import { Footer } from "@/components/footer/footer";
 import { RevealObserver } from "@/components/layout/reveal-observer";
@@ -61,6 +62,27 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <Footer />
         <Chatbot />
         <RevealObserver />
+        {/* Google Analytics 4: one site-wide installation. Measurement ID G-LX1VK5QT45. */}
+        <Script src="https://www.googletagmanager.com/gtag/js?id=G-LX1VK5QT45" strategy="afterInteractive" />
+        <Script id="google-analytics" strategy="afterInteractive">
+          {`
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+
+            gtag('config', 'G-LX1VK5QT45');
+          `}
+        </Script>
+        {/* Leadinfo: one site-wide installation. The vendor's snippet, unchanged; it loads https://cdn.leadinfo.net/ping.js.
+            The id must not be "leadinfo": an element id becomes a global of the same name, and the snippet skips itself if window.leadinfo exists. */}
+        <Script id="leadinfo-tracking" strategy="afterInteractive">
+          {`
+            (function(l,e,a,d,i,n,f,o){if(!l[i]){l.GlobalLeadinfoNamespace=l.GlobalLeadinfoNamespace||[];
+            l.GlobalLeadinfoNamespace.push(i);l[i]=function(){(l[i].q=l[i].q||[]).push(arguments)};l[i].t=l[i].t||n;
+            l[i].q=l[i].q||[];o=e.createElement(a);f=e.getElementsByTagName(a)[0];o.async=1;o.src=d;f.parentNode.insertBefore(o,f);}
+            }(window,document,'script','https://cdn.leadinfo.net/ping.js','leadinfo','LI-6863FDC52AD22'));
+          `}
+        </Script>
       </body>
     </html>
   );

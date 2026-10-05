@@ -13,6 +13,8 @@ type ChatWindowProps = {
   id: string;
   messages: Message[];
   typing: boolean;
+  /** Shows a "Live Chat" option in the menu. Omitted when live chat has not been set up. */
+  onStartLive?: () => void;
   onQuickAction: (id: QuickActionId, label: string) => void;
   onSend: (text: string) => void;
   onAction: (action: ChatAction) => void;
@@ -23,8 +25,17 @@ type ChatWindowProps = {
 
 const actionIcons = { route: ArrowRight, enquiry: ArrowRight, tel: Phone, mail: Mail } as const;
 
+/** Position, size and frame of the chat panel. Shared with the live-chat panel so both look like one window. */
+export const panelClass = cn(
+  // Sits above the launcher and below the fixed navbar, so neither is covered.
+  "fixed right-4 bottom-[calc(5.25rem+env(safe-area-inset-bottom))] z-40 flex w-[calc(100vw-2rem)] max-w-[23.5rem] flex-col overflow-hidden sm:right-6 sm:bottom-[5.75rem]",
+  "h-[min(35rem,calc(100svh-var(--nav-h)-6.75rem-env(safe-area-inset-bottom)))] rounded-brand border border-line bg-salt text-overnight shadow-[0_24px_60px_-16px_rgb(0_3_21/0.55)]",
+  // The site-wide CARGO focus ring is too faint on white; use ATLANTIC inside the light panel.
+  "[&_:focus-visible]:outline-atlantic focus:outline-none",
+);
+
 /** Chat panel: brand header, message log, quick actions and a free-text box. Non-modal, so the page stays usable. */
-export function ChatWindow({ id, messages, typing, onQuickAction, onSend, onAction, onReset, onClose, ref }: ChatWindowProps) {
+export function ChatWindow({ id, messages, typing, onStartLive, onQuickAction, onSend, onAction, onReset, onClose, ref }: ChatWindowProps) {
   const reduce = useReducedMotion();
   const [draft, setDraft] = useState("");
   const logRef = useRef<HTMLDivElement>(null);
@@ -44,6 +55,8 @@ export function ChatWindow({ id, messages, typing, onQuickAction, onSend, onActi
   };
 
   const lastBot = messages.findLastIndex((m) => m.from === "bot");
+  const quickActionClass =
+    "min-h-9 rounded-full border border-atlantic/45 bg-salt px-3.5 py-1.5 text-[0.86rem] font-semibold text-atlantic transition-colors hover:border-atlantic hover:bg-atlantic hover:text-salt";
 
   return (
     <motion.div
@@ -58,13 +71,7 @@ export function ChatWindow({ id, messages, typing, onQuickAction, onSend, onActi
       exit={reduce ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.97 }}
       transition={{ duration: 0.22, ease: [0.2, 0.7, 0.2, 1] }}
       style={{ transformOrigin: "bottom right" }}
-      className={cn(
-        // Sits above the launcher and below the fixed navbar, so neither is covered.
-        "fixed right-4 bottom-[calc(5.25rem+env(safe-area-inset-bottom))] z-40 flex w-[calc(100vw-2rem)] max-w-[23.5rem] flex-col overflow-hidden sm:right-6 sm:bottom-[5.75rem]",
-        "h-[min(35rem,calc(100svh-var(--nav-h)-6.75rem-env(safe-area-inset-bottom)))] rounded-brand border border-line bg-salt text-overnight shadow-[0_24px_60px_-16px_rgb(0_3_21/0.55)]",
-        // The site-wide CARGO focus ring is too faint on white; use ATLANTIC inside the light panel.
-        "[&_:focus-visible]:outline-atlantic focus:outline-none",
-      )}
+      className={panelClass}
     >
       <div className="bg-clearance flex items-start gap-3 px-5 pt-4 pb-4 text-salt">
         <div className="min-w-0 flex-1">
@@ -134,15 +141,15 @@ export function ChatWindow({ id, messages, typing, onQuickAction, onSend, onActi
               {i === lastBot && !typing && (
                 <div role="group" aria-label="Suggested topics" className="mt-3 flex flex-wrap gap-2">
                   {quickActions.map((q) => (
-                    <button
-                      key={q.id}
-                      type="button"
-                      onClick={() => onQuickAction(q.id, q.label)}
-                      className="min-h-9 rounded-full border border-atlantic/45 bg-salt px-3.5 py-1.5 text-[0.86rem] font-semibold text-atlantic transition-colors hover:border-atlantic hover:bg-atlantic hover:text-salt"
-                    >
+                    <button key={q.id} type="button" onClick={() => onQuickAction(q.id, q.label)} className={quickActionClass}>
                       {q.label}
                     </button>
                   ))}
+                  {onStartLive && (
+                    <button type="button" onClick={onStartLive} className={quickActionClass}>
+                      Live Chat
+                    </button>
+                  )}
                 </div>
               )}
             </motion.div>
