@@ -1,9 +1,9 @@
 "use client";
 
-import { ArrowRight, Mail, Phone, RotateCcw, SendHorizontal, X } from "lucide-react";
+import { ArrowRight, Mail, Phone, RotateCcw, X } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
-import { type Ref, type SyntheticEvent, useEffect, useRef, useState } from "react";
+import { type Ref, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils/cn";
 import { type ChatAction, type QuickActionId, type Reply, quickActions } from "./chat-data";
 
@@ -13,10 +13,9 @@ type ChatWindowProps = {
   id: string;
   messages: Message[];
   typing: boolean;
-  /** Shows a "Live Chat" option in the menu. Omitted when live chat has not been set up. */
-  onStartLive?: () => void;
+  /** The "Live Chat" option in the menu. */
+  onStartLive: () => void;
   onQuickAction: (id: QuickActionId, label: string) => void;
-  onSend: (text: string) => void;
   onAction: (action: ChatAction) => void;
   onReset: () => void;
   onClose: () => void;
@@ -34,10 +33,9 @@ export const panelClass = cn(
   "[&_:focus-visible]:outline-atlantic focus:outline-none",
 );
 
-/** Chat panel: brand header, message log, quick actions and a free-text box. Non-modal, so the page stays usable. */
-export function ChatWindow({ id, messages, typing, onStartLive, onQuickAction, onSend, onAction, onReset, onClose, ref }: ChatWindowProps) {
+/** Chat panel: brand header, message log and quick actions (including Live Chat). Non-modal, so the page stays usable. */
+export function ChatWindow({ id, messages, typing, onStartLive, onQuickAction, onAction, onReset, onClose, ref }: ChatWindowProps) {
   const reduce = useReducedMotion();
-  const [draft, setDraft] = useState("");
   const logRef = useRef<HTMLDivElement>(null);
 
   // Keep the newest message in view.
@@ -45,14 +43,6 @@ export function ChatWindow({ id, messages, typing, onStartLive, onQuickAction, o
     const log = logRef.current;
     if (log) log.scrollTo({ top: log.scrollHeight, behavior: reduce ? "auto" : "smooth" });
   }, [messages, typing, reduce]);
-
-  const submit = (e: SyntheticEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const text = draft.trim();
-    if (!text) return;
-    onSend(text);
-    setDraft("");
-  };
 
   const lastBot = messages.findLastIndex((m) => m.from === "bot");
   const quickActionClass =
@@ -145,11 +135,9 @@ export function ChatWindow({ id, messages, typing, onStartLive, onQuickAction, o
                       {q.label}
                     </button>
                   ))}
-                  {onStartLive && (
-                    <button type="button" onClick={onStartLive} className={quickActionClass}>
-                      Live Chat
-                    </button>
-                  )}
+                  <button type="button" onClick={onStartLive} className={quickActionClass}>
+                    Live Chat
+                  </button>
                 </div>
               )}
             </motion.div>
@@ -165,29 +153,6 @@ export function ChatWindow({ id, messages, typing, onStartLive, onQuickAction, o
         )}
       </div>
 
-      <form onSubmit={submit} className="flex items-center gap-2 border-t border-line bg-salt p-3">
-        <label htmlFor={`${id}-input`} className="sr-only">
-          Type your question
-        </label>
-        <input
-          id={`${id}-input`}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="Type your question…"
-          autoComplete="off"
-          maxLength={300}
-          // 16px text stops iOS zooming the page when the field is focused.
-          className="min-h-11 min-w-0 flex-1 rounded-brand border border-line bg-salt px-3.5 text-base text-overnight placeholder:text-pebble focus-visible:outline-2 focus-visible:outline-offset-0"
-        />
-        <button
-          type="submit"
-          aria-label="Send"
-          disabled={!draft.trim()}
-          className="grid size-11 shrink-0 place-items-center rounded-brand bg-cargo text-overnight transition-colors hover:bg-haul disabled:opacity-50"
-        >
-          <SendHorizontal aria-hidden className="size-5" />
-        </button>
-      </form>
     </motion.div>
   );
 }

@@ -5,14 +5,14 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { primaryCta } from "@/lib/site";
 import { uWebChatUrl } from "@/lib/uwebchat";
-import { type ChatAction, type QuickActionId, type Reply, answer, quickReply, welcome } from "./chat-data";
+import { type ChatAction, type QuickActionId, type Reply, quickReply, welcome } from "./chat-data";
 import { ChatbotButton } from "./chatbot-button";
 import { type Message, ChatWindow } from "./chat-window";
 import { LiveChatPanel } from "./live-chat-panel";
 
 const PANEL_ID = "cw-chat";
 const LIVE_PANEL_ID = "cw-live-chat";
-/** Null until uWebChat has been set up; the Live Chat option is hidden until then. */
+/** Null until uWebChat has been set up (see docs/live-chat-uwebchat.md). */
 const liveChatUrl = uWebChatUrl();
 const initialMessages: Message[] = [{ id: 0, from: "bot", reply: welcome }];
 
@@ -96,6 +96,7 @@ export function Chatbot() {
     else if (action.kind === "route") close(false);
   };
 
+  /** Live Chat always opens the details form first; the panel then opens uWebChat, or says so if it cannot. */
   const startLive = () => {
     setLiveStarted(true);
     setView("live");
@@ -118,17 +119,24 @@ export function Chatbot() {
             id={PANEL_ID}
             messages={messages}
             typing={typing}
-            onStartLive={liveChatUrl ? startLive : undefined}
+            onStartLive={startLive}
             onQuickAction={onQuickAction}
-            onSend={(text) => exchange(text, answer(text))}
             onAction={onAction}
             onReset={reset}
             onClose={() => close()}
           />
         )}
       </AnimatePresence>
-      {liveChatUrl && liveStarted && (
-        <LiveChatPanel ref={livePanelRef} id={LIVE_PANEL_ID} src={liveChatUrl} visible={open && view === "live"} onBack={() => setView("assistant")} onClose={() => close()} />
+      {liveStarted && (
+        <LiveChatPanel
+          ref={livePanelRef}
+          id={LIVE_PANEL_ID}
+          baseUrl={liveChatUrl}
+          visible={open && view === "live"}
+          onBack={() => setView("assistant")}
+          onClose={() => close()}
+          onEnquiry={goToEnquiry}
+        />
       )}
     </>
   );
