@@ -49,6 +49,25 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en-GB" className={`${oswald.variable} ${openSans.variable}`}>
+      <head>
+        {/* Google tag (gtag.js): Google Analytics 4, one site-wide installation. Measurement ID G-LX1VK5QT45.
+            Plain script tags in <head>, not next/script: Search Console's "Google Analytics" ownership check reads the
+            server-rendered <head> of the homepage, and next/script only adds the tags from JavaScript after load. */}
+        {/* eslint-disable-next-line @next/next/next-script-for-ga -- the suggested component injects the tag client-side, which Search Console cannot see */}
+        <script async src="https://www.googletagmanager.com/gtag/js?id=G-LX1VK5QT45" />
+        <script
+          id="google-analytics"
+          dangerouslySetInnerHTML={{
+            __html: `
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-LX1VK5QT45');
+`,
+          }}
+        />
+      </head>
       <body>
         <a
           href="#main"
@@ -64,17 +83,6 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <Footer />
         <Chatbot />
         <RevealObserver />
-        {/* Google Analytics 4: one site-wide installation. Measurement ID G-LX1VK5QT45. */}
-        <Script src="https://www.googletagmanager.com/gtag/js?id=G-LX1VK5QT45" strategy="afterInteractive" />
-        <Script id="google-analytics" strategy="afterInteractive">
-          {`
-            window.dataLayer = window.dataLayer || [];
-            function gtag(){dataLayer.push(arguments);}
-            gtag('js', new Date());
-
-            gtag('config', 'G-LX1VK5QT45');
-          `}
-        </Script>
         {/* Leadinfo: one site-wide installation. The vendor's snippet, unchanged; it loads https://cdn.leadinfo.net/ping.js.
             The id must not be "leadinfo": an element id becomes a global of the same name, and the snippet skips itself if window.leadinfo exists. */}
         <Script id="leadinfo-tracking" strategy="afterInteractive">
