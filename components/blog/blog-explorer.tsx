@@ -3,7 +3,7 @@
 import { Search, X } from "lucide-react";
 import { useId, useMemo, useState } from "react";
 import type { BlogPostSummary } from "@/lib/content/blog";
-import { type BlogTopic, blogTopics } from "@/lib/content/blog-topics";
+import { blogTopics, topicLabel } from "@/lib/content/blog-topics";
 import { cn } from "@/lib/utils/cn";
 import { BlogCard } from "./blog-card";
 
@@ -15,7 +15,7 @@ type BlogExplorerProps = {
 
 /** Article list with a text search and a topic filter. Receives card fields only, never article bodies. */
 export function BlogExplorer({ posts, featuredSlug }: BlogExplorerProps) {
-  const [topic, setTopic] = useState<BlogTopic | "all">("all");
+  const [topic, setTopic] = useState<string>("all");
   const [query, setQuery] = useState("");
   const searchId = useId();
 
@@ -25,7 +25,7 @@ export function BlogExplorer({ posts, featuredSlug }: BlogExplorerProps) {
     return posts.filter((p) => {
       if (!filtering && p.slug === featuredSlug) return false;
       if (topic !== "all" && p.topic !== topic) return false;
-      const haystack = `${p.title} ${p.excerpt} ${blogTopics[p.topic]}`.toLowerCase();
+      const haystack = `${p.title} ${p.excerpt} ${topicLabel(p)}`.toLowerCase();
       return words.every((w) => haystack.includes(w));
     });
   }, [posts, topic, query, filtering, featuredSlug]);
@@ -41,7 +41,14 @@ export function BlogExplorer({ posts, featuredSlug }: BlogExplorerProps) {
     setQuery("");
   };
 
-  const chip = (value: BlogTopic | "all", label: string) => (
+  /** The standard topics in their usual order, then any other category that articles from the blog CMS use. */
+  const topics = useMemo(() => {
+    const list: [string, string][] = Object.entries(blogTopics);
+    for (const p of posts) if (!list.some(([key]) => key === p.topic)) list.push([p.topic, topicLabel(p)]);
+    return list;
+  }, [posts]);
+
+  const chip = (value: string, label: string) => (
     <button
       key={value}
       type="button"
@@ -62,7 +69,7 @@ export function BlogExplorer({ posts, featuredSlug }: BlogExplorerProps) {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div role="group" aria-label="Filter articles by topic" className="flex flex-wrap gap-2">
           {chip("all", "All articles")}
-          {(Object.keys(blogTopics) as BlogTopic[]).map((t) => chip(t, blogTopics[t]))}
+          {topics.map(([key, label]) => chip(key, label))}
         </div>
         <div className="relative w-full lg:w-72">
           <label htmlFor={searchId} className="sr-only">

@@ -3,6 +3,7 @@ import localFont from "next/font/local";
 import Script from "next/script";
 import { Chatbot } from "@/components/chatbot/chatbot";
 import { Footer } from "@/components/footer/footer";
+import { PublicOnly } from "@/components/layout/public-only";
 import { RevealObserver } from "@/components/layout/reveal-observer";
 import { Navbar } from "@/components/navigation/navbar";
 import { JsonLd } from "@/components/ui/json-ld";
@@ -63,7 +64,8 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   function gtag(){dataLayer.push(arguments);}
   gtag('js', new Date());
 
-  gtag('config', 'G-LX1VK5QT45');
+  // Visits to the blog admin (/admin-blog) are not recorded.
+  if (!location.pathname.startsWith('/admin-blog')) gtag('config', 'G-LX1VK5QT45');
 `,
           }}
         />
@@ -75,18 +77,25 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         >
           Skip to content
         </a>
-        <JsonLd data={[organizationSchema(), websiteSchema()]} />
-        <Navbar />
+        {/* PublicOnly: none of this is shown in the blog admin (/admin-blog), which has its own screens. */}
+        <PublicOnly>
+          <JsonLd data={[organizationSchema(), websiteSchema()]} />
+          <Navbar />
+        </PublicOnly>
         <main id="main" tabIndex={-1}>
           {children}
         </main>
-        <Footer />
-        <Chatbot />
-        <RevealObserver />
-        {/* Leadinfo: one site-wide installation. The vendor's snippet, unchanged; it loads https://cdn.leadinfo.net/ping.js.
+        <PublicOnly>
+          <Footer />
+          <Chatbot />
+          <RevealObserver />
+        </PublicOnly>
+        {/* Leadinfo: one site-wide installation. The vendor's snippet, unchanged apart from not running in the blog admin
+            (/admin-blog); it loads https://cdn.leadinfo.net/ping.js.
             The id must not be "leadinfo": an element id becomes a global of the same name, and the snippet skips itself if window.leadinfo exists. */}
         <Script id="leadinfo-tracking" strategy="afterInteractive">
           {`
+            if (!location.pathname.startsWith('/admin-blog'))
             (function(l,e,a,d,i,n,f,o){if(!l[i]){l.GlobalLeadinfoNamespace=l.GlobalLeadinfoNamespace||[];
             l.GlobalLeadinfoNamespace.push(i);l[i]=function(){(l[i].q=l[i].q||[]).push(arguments)};l[i].t=l[i].t||n;
             l[i].q=l[i].q||[];o=e.createElement(a);f=e.getElementsByTagName(a)[0];o.async=1;o.src=d;f.parentNode.insertBefore(o,f);}

@@ -3,7 +3,8 @@ import { FeaturedPost } from "@/components/blog/featured-post";
 import { CTASection } from "@/components/sections/cta-section";
 import { PageHero } from "@/components/sections/page-hero";
 import { JsonLd } from "@/components/ui/json-ld";
-import { blogPosts, toSummary } from "@/lib/content/blog";
+import { toSummary } from "@/lib/content/blog";
+import { loadBlog } from "@/lib/content/blog-source";
 import { buildMetadata } from "@/lib/seo/metadata";
 import { breadcrumbSchema, webPageSchema } from "@/lib/structured-data/schemas";
 
@@ -11,12 +12,15 @@ const title = "Blog: Customs News & Updates | Customs Wise";
 const description =
   "News, updates and practical customs guidance from the Customs Wise team for businesses trading between the UK, Ireland and the EU.";
 
-/** The newest post leads the blog. Same posts and components as the Blog section on /insights. */
-const featured = blogPosts[0];
-
 export const metadata = buildMetadata({ title, description, path: "/blog" });
 
-export default function BlogPage() {
+/** Refreshed every 10 minutes, and at once when an article is published or unpublished in the blog admin. */
+export const revalidate = 600;
+
+export default async function BlogPage() {
+  const { posts: blogPosts } = await loadBlog();
+  /** The newest post leads the blog. */
+  const featured = blogPosts[0];
   return (
     <>
       <JsonLd

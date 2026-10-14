@@ -30,9 +30,16 @@
   --color-current: currentColor;
   --color-transparent: transparent;
 
+  /* Blog admin only: the fictional Demo Website shown in CMS previews (cms/components/public/demo.tsx) */
+  --color-demo-ink: #1f2933;
+  --color-demo-leaf: #2f6f4f;
+  --color-demo-sand: #f6f1e7;
+  --color-demo-clay: #b5562b;
+
   /* Display: Gobold per brand guide; Oswald is the self-hosted stand-in (see README) */
   --font-display: var(--font-oswald), "Gobold", "Arial Narrow", sans-serif;
   --font-sans: var(--font-open-sans), "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-serif: Georgia, "Times New Roman", serif;
 
   --radius-brand: 6px;
   --container-site: 75rem;
@@ -115,6 +122,13 @@
     margin: 1.4em 0;
   }
   .prose-cw .callout p { margin: 0; color: var(--color-overnight); }
+  /* Quotes and images: block types that blog articles written in the CMS can use */
+  .prose-cw blockquote { border-left: 4px solid var(--color-atlantic); padding: 0.2rem 0 0.2rem 1.25rem; margin: 1.4em 0; }
+  .prose-cw blockquote p { font-size: 1.12rem; color: var(--color-overnight); margin: 0; }
+  .prose-cw blockquote cite { display: block; margin-top: 0.5rem; font-size: 0.88rem; font-style: normal; color: var(--color-pebble); }
+  .prose-cw figure { margin: 1.6em 0; }
+  .prose-cw figure img { border-radius: var(--radius-brand); height: auto; max-width: 100%; }
+  .prose-cw figcaption { margin-top: 0.6rem; font-size: 0.86rem; color: var(--color-pebble); }
   .prose-cw .cols { display: grid; gap: 0 2rem; }
   @media (min-width: 640px) { .prose-cw .cols { grid-template-columns: 1fr 1fr; } }
   .table-cw { overflow-x: auto; margin: 1em 0 1.6em; border: 1px solid var(--color-line); border-radius: var(--radius-brand); }

@@ -40,3 +40,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# blog CMS: local test data (only with CMS_STORE=json or CMS_IMAGES=local)
+/.cms-data/

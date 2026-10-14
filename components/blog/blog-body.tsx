@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { Fragment } from "react";
 import type { BlogBlock, RichText } from "@/lib/content/blog";
@@ -19,7 +20,7 @@ function Rich({ text }: { text: RichText }) {
   });
 }
 
-/** Renders an article's structured content inside .prose-cw (headings, paragraphs, lists, callouts). */
+/** Renders an article's structured content inside .prose-cw (headings, paragraphs, lists, callouts, quotes, images). */
 export function BlogBody({ blocks }: { blocks: BlogBlock[] }) {
   return blocks.map((b, i) => {
     switch (b.type) {
@@ -45,6 +46,22 @@ export function BlogBody({ blocks }: { blocks: BlogBlock[] }) {
           <div key={i} className="callout">
             <p className="break-words">{b.text}</p>
           </div>
+        );
+      case "quote":
+        return (
+          <blockquote key={i}>
+            <p>
+              <Rich text={b.text} />
+            </p>
+            {b.cite && <cite>{b.cite}</cite>}
+          </blockquote>
+        );
+      case "image":
+        return (
+          <figure key={i}>
+            <Image src={b.image.src} alt={b.image.alt} width={b.image.width} height={b.image.height} sizes="(min-width:1024px) 48rem, 100vw" loading="lazy" style={{ maxWidth: b.image.width }} />
+            {b.image.caption && <figcaption>{b.image.caption}</figcaption>}
+          </figure>
         );
       default:
         return (

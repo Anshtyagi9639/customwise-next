@@ -3,7 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import type { BlogPostSummary } from "@/lib/content/blog";
-import { blogTopics } from "@/lib/content/blog-topics";
+import { topicLabel } from "@/lib/content/blog-topics";
 import { imageQuality } from "@/lib/content/images";
 import { NoImagePanel } from "./no-image-panel";
 import { PostMeta } from "./post-meta";
@@ -33,7 +33,7 @@ export function FeaturedPost({ post }: { post: BlogPostSummary }) {
           </div>
         ) : (
           <div className="relative aspect-video h-full">
-            <NoImagePanel label={blogTopics[post.topic]} />
+            <NoImagePanel label={topicLabel(post)} />
           </div>
         )}
       </div>

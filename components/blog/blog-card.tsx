@@ -2,7 +2,7 @@ import { ArrowRight } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type { BlogPostSummary } from "@/lib/content/blog";
-import { blogTopics } from "@/lib/content/blog-topics";
+import { topicLabel } from "@/lib/content/blog-topics";
 import { imageQuality } from "@/lib/content/images";
 import { NoImagePanel } from "./no-image-panel";
 import { PostMeta } from "./post-meta";
@@ -24,7 +24,7 @@ export function BlogCard({ post, headingLevel = "h3" }: { post: BlogPostSummary;
             className="object-cover transition-transform duration-500 group-hover:scale-[1.04]"
           />
         ) : (
-          <NoImagePanel label={blogTopics[post.topic]} />
+          <NoImagePanel label={topicLabel(post)} />
         )}
       </div>
       <div className="flex flex-1 flex-col px-5.5 pt-5 pb-6">

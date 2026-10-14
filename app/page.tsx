@@ -11,7 +11,8 @@ import { SectionHeading } from "@/components/sections/section-heading";
 import { ServiceGrid } from "@/components/sections/service-grid";
 import { Button } from "@/components/ui/button";
 import { JsonLd } from "@/components/ui/json-ld";
-import { allArticles, faqs, industries } from "@/lib/content";
+import { articlesWith, faqs, industries } from "@/lib/content";
+import { loadBlog } from "@/lib/content/blog-source";
 import { buildMetadata } from "@/lib/seo/metadata";
 import { webPageSchema } from "@/lib/structured-data/schemas";
 
@@ -23,7 +24,11 @@ export const metadata = buildMetadata({ title, description, path: "/" });
 
 const featuredIndustries = ["food-and-beverages", "chemicals-and-gases", "vehicles"];
 
-export default function HomePage() {
+/** The latest blog articles are shown below; refreshed with the blog (see app/insights/blog/[slug]/page.tsx). */
+export const revalidate = 600;
+
+export default async function HomePage() {
+  const allArticles = articlesWith((await loadBlog()).posts);
   return (
     <>
       <JsonLd data={webPageSchema("/", title, description)} />

@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { blogPosts } from "@/lib/content/blog";
+import { loadBlog } from "@/lib/content/blog-source";
 import { site } from "@/lib/site";
 
 const routes: { path: string; priority: number; changeFrequency: MetadataRoute.Sitemap[number]["changeFrequency"] }[] = [
@@ -20,7 +20,11 @@ const routes: { path: string; priority: number; changeFrequency: MetadataRoute.S
   { path: "/contact", priority: 0.8, changeFrequency: "yearly" },
 ];
 
-export default function sitemap(): MetadataRoute.Sitemap {
+/** Refreshed with the blog (see app/insights/blog/[slug]/page.tsx). */
+export const revalidate = 600;
+
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const { posts: blogPosts } = await loadBlog();
   const pages = routes.map((r) => ({ url: `${site.url}${r.path === "/" ? "" : r.path}`, changeFrequency: r.changeFrequency, priority: r.priority }));
   const posts = blogPosts.map((p) => ({
     url: `${site.url}/insights/blog/${p.slug}`,

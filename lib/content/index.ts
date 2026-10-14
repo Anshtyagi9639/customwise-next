@@ -1,5 +1,5 @@
 import type { Faq, Guide, ImageAsset, Industry, InsightCategory, Service } from "@/types";
-import { blogPosts, blogTopics, postPath } from "./blog";
+import { type BlogPost, blogPosts, postPath, topicLabel } from "./blog";
 import { images } from "./images";
 
 /** Copy from the client's Website Content 2.0 document, lightly edited for the web. */
@@ -192,17 +192,22 @@ export const insightCategories: InsightCategory[] = [
   { slug: "food-customs", label: "Food customs", description: "In-depth guidance from our food team on POAO, fish and fresh produce." },
 ];
 
-const blogArticles: Guide[] = blogPosts.map((p) => ({
+const toGuide = (p: BlogPost): Guide => ({
   href: postPath(p),
   title: p.title,
-  tag: blogTopics[p.topic],
+  tag: topicLabel(p),
   category: "blog",
   summary: p.excerpt,
   image: p.image,
-}));
+});
 
-/** Every article, blog posts first (newest first), then guides. */
-export const allArticles: Guide[] = [...blogArticles, ...insights, ...foodGuides];
+/** Every article, blog posts first (newest first), then guides. Built from the given blog posts (see blog-source.ts). */
+export function articlesWith(posts: BlogPost[]): Guide[] {
+  return [...posts.map(toGuide), ...insights, ...foodGuides];
+}
+
+/** Every article, with the built-in blog posts. */
+export const allArticles: Guide[] = articlesWith(blogPosts);
 
 /** Categories that currently have at least one article (empty categories are never shown). */
 export const activeInsightCategories = insightCategories.filter((c) => allArticles.some((a) => a.category === c.slug));

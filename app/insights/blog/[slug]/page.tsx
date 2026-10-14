@@ -8,7 +8,8 @@ import { ArticleLayout, insightsAside } from "@/components/layout/article-layout
 import { CTASection } from "@/components/sections/cta-section";
 import { PageHero } from "@/components/sections/page-hero";
 import { JsonLd } from "@/components/ui/json-ld";
-import { blogPosts, blogTopics, getPost, postPath, toSummary } from "@/lib/content/blog";
+import { formatPostDate, getPost, postPath, toSummary, topicLabel } from "@/lib/content/blog";
+import { loadBlog } from "@/lib/content/blog-source";
 import { imageQuality } from "@/lib/content/images";
 import { buildMetadata } from "@/lib/seo/metadata";
 import { site } from "@/lib/site";
@@ -16,28 +17,36 @@ import { articleSchema, breadcrumbSchema } from "@/lib/structured-data/schemas";
 
 type BlogPostPageProps = { params: Promise<{ slug: string }> };
 
-/** Blog posts are pre-rendered from lib/content/blog-posts.ts; any other slug is a 404. */
-export const dynamicParams = false;
+/**
+ * Posts are pre-rendered from the blog source (lib/content/blog-source.ts) and refreshed every 10 minutes, and at once
+ * when an article is published, changed or unpublished in the blog admin. A slug that is not a post is a 404.
+ */
+export const revalidate = 600;
 
 /** Social previews use the article's own image when it is large enough to share well; otherwise the site image. */
 const MIN_SHARE_WIDTH = 600;
 
-export function generateStaticParams() {
-  return blogPosts.map((p) => ({ slug: p.slug }));
+/** Image addresses from the blog CMS can be absolute (hosted images); the built-in ones are paths on this website. */
+const absolute = (src: string) => (/^https?:\/\//i.test(src) ? src : `${site.url}${src}`);
+
+export async function generateStaticParams() {
+  return (await loadBlog()).posts.map((p) => ({ slug: p.slug }));
 }
 
 export async function generateMetadata({ params }: BlogPostPageProps): Promise<Metadata> {
   const { slug } = await params;
-  const post = getPost(slug);
+  const post = getPost(slug, (await loadBlog()).posts);
   if (!post) return {};
-  const base = buildMetadata({ title: `${post.title} | Customs Wise`, description: post.excerpt, path: postPath(post), type: "article" });
+  const base = buildMetadata({ title: post.seoTitle ?? `${post.title} | Customs Wise`, description: post.seoDescription ?? post.excerpt, path: postPath(post), type: "article" });
   const shareImage = post.image && post.image.width >= MIN_SHARE_WIDTH ? { url: post.image.src, width: post.image.width, height: post.image.height, alt: post.image.alt } : undefined;
   return {
     ...base,
+    // An article first published elsewhere points search engines at the original.
+    ...(post.canonical ? { alternates: { canonical: post.canonical } } : {}),
     openGraph: {
       ...base.openGraph,
       type: "article",
-      section: blogTopics[post.topic],
+      section: topicLabel(post),
       ...(post.date ? { publishedTime: post.date } : {}),
       ...(shareImage ? { images: [shareImage] } : {}),
     },
@@ -47,8 +56,14 @@ export async function generateMetadata({ params }: BlogPostPageProps): Promise<M
 
 export default async function BlogPostPage({ params }: BlogPostPageProps) {
   const { slug } = await params;
-  const post = getPost(slug);
-  if (!post) notFound();
+  const blog = await loadBlog();
+  const post = getPost(slug, blog.posts);
+  if (!post) {
+    // While the CMS cannot be read, an article that exists only there must not be replaced by a 404:
+    // failing here keeps the last good version of the page (see blog-source.ts).
+    if (blog.origin === "built-in-fallback") throw new Error("The blog source is temporarily unavailable.");
+    notFound();
+  }
   const path = postPath(post);
   const trail = [
     { name: "Insights", path: "/insights" },
@@ -58,14 +73,17 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
   const schema = {
     ...articleSchema(path, post.title, post.excerpt),
     "@type": "BlogPosting",
-    articleSection: blogTopics[post.topic],
+    articleSection: topicLabel(post),
     ...(post.date ? { datePublished: post.date } : {}),
-    ...(post.image ? { image: `${site.url}${post.image.src}` } : {}),
+    ...(post.image ? { image: absolute(post.image.src) } : {}),
   };
+  const faqSchema = post.faq?.length
+    ? { "@type": "FAQPage", mainEntity: post.faq.map((f) => ({ "@type": "Question", name: f.question, acceptedAnswer: { "@type": "Answer", text: f.answer } })) }
+    : null;
 
   return (
     <>
-      <JsonLd data={[schema, breadcrumbSchema(trail)]} />
+      <JsonLd data={faqSchema ? [schema, breadcrumbSchema(trail), faqSchema] : [schema, breadcrumbSchema(trail)]} />
       <PageHero title={post.title} intro={<PostMeta post={toSummary(post)} tone="dark" className="text-[0.92rem]" />} trail={trail} />
       <ArticleLayout
         cta={{ ...insightsAside.cta, title: "Need help with your customs requirements?" }}
@@ -91,9 +109,35 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
             </figure>
           )}
           <BlogBody blocks={post.body} />
+          {post.faq && post.faq.length > 0 && (
+            <section aria-labelledby="faq-title">
+              <h2 id="faq-title">Frequently asked questions</h2>
+              {post.faq.map((f, i) => (
+                <div key={i}>
+                  <h3>{f.question}</h3>
+                  <p>{f.answer}</p>
+                </div>
+              ))}
+            </section>
+          )}
+          {post.sources && post.sources.length > 0 && (
+            <section aria-labelledby="sources-title">
+              <h3 id="sources-title">Sources</h3>
+              <ul>
+                {post.sources.map((s, i) => (
+                  <li key={i}>
+                    <a href={s.url} rel="noopener noreferrer">
+                      {s.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {post.lastReviewedAt && <p className="text-[0.88rem] text-pebble">Last reviewed {formatPostDate(post.lastReviewedAt)}</p>}
         </article>
       </ArticleLayout>
-      <RelatedPosts post={post} />
+      <RelatedPosts post={post} posts={blog.posts} />
       <CTASection title="Need help with your customs requirements?" />
     </>
   );

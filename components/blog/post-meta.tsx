@@ -1,5 +1,5 @@
 import type { BlogPostSummary } from "@/lib/content/blog";
-import { blogTopics, formatPostDate } from "@/lib/content/blog-topics";
+import { formatPostDate, topicLabel } from "@/lib/content/blog-topics";
 import { cn } from "@/lib/utils/cn";
 
 /**
@@ -16,7 +16,7 @@ export function PostMeta({ post, tone = "light", className }: { post: BlogPostSu
   return (
     <div className={cn("overflow-hidden text-[0.8rem] font-bold", className)}>
       <p className="-ml-5 flex flex-wrap items-center gap-y-1">
-        <span className={cn(item, tone === "dark" ? "text-cargo" : "text-freight")}>{blogTopics[post.topic]}</span>
+        <span className={cn(item, tone === "dark" ? "text-cargo" : "text-freight")}>{topicLabel(post)}</span>
         {post.date && (
           <time dateTime={post.date} className={cn(item, muted)}>
             {formatPostDate(post.date)}

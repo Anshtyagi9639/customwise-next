@@ -3,9 +3,9 @@ import { SectionHeading } from "@/components/sections/section-heading";
 import { type BlogPost, relatedPosts, toSummary } from "@/lib/content/blog";
 import { BlogCard } from "./blog-card";
 
-/** Up to three related articles: same topic first, then the newest from other topics. */
-export function RelatedPosts({ post }: { post: BlogPost }) {
-  const related = relatedPosts(post);
+/** Up to three related articles from `posts`: same topic first, then the newest from other topics. */
+export function RelatedPosts({ post, posts }: { post: BlogPost; posts: BlogPost[] }) {
+  const related = relatedPosts(post, posts);
   if (related.length === 0) return null;
   return (
     <section aria-labelledby="related-posts-title" className="bg-mist py-16 sm:py-20">

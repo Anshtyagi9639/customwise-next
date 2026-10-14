@@ -1,0 +1,70 @@
+/*
+ * Styles for the blog admin only. Loaded by app/admin-blog/layout.tsx and nested under .cms-admin, so none of these
+ * rules can reach the public website (which, for example, uses Tailwind's own "table" class).
+ * In the "components" layer: they override the website's base heading styles but still give way to utility classes.
+ */
+@reference "../globals.css";
+
+@layer components {
+  .cms-admin {
+    /* The website's base styles give h1-h3 the display face; admin screens use the plain sans face. */
+    & h1, & h2, & h3 { font-family: var(--font-sans); font-weight: 700; color: var(--color-overnight); letter-spacing: normal; line-height: 1.2; }
+
+    & .cms-shell { @apply bg-mist text-overnight; }
+    & .page-title { @apply text-[1.6rem] leading-tight font-bold text-overnight; }
+    & .section-title { @apply text-[1.1rem] leading-tight font-bold text-overnight; }
+    & .card { @apply rounded-[10px] border border-line bg-salt p-5; }
+    & .btn {
+      @apply inline-flex min-h-10 cursor-pointer items-center justify-center gap-1.5 rounded-brand border border-transparent px-4 text-[0.92rem] font-bold whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-55;
+    }
+    & .btn-primary { @apply bg-atlantic text-salt hover:bg-ship; }
+    & .btn-accent { @apply bg-cargo text-overnight hover:bg-haul; }
+    & .btn-secondary { @apply border-line bg-salt text-overnight hover:border-atlantic hover:text-atlantic; }
+    & .btn-danger { @apply border-error/40 bg-salt text-error hover:bg-error hover:text-salt; }
+    & .btn-sm { @apply min-h-8 px-3 text-[0.84rem]; }
+    & .label { @apply mb-1 block text-[0.88rem] font-bold text-overnight; }
+    & .hint { @apply mt-1 text-[0.8rem] text-pebble; }
+    & .input {
+      @apply min-h-10 w-full rounded-brand border border-line bg-salt px-3 py-2 text-[0.95rem] text-overnight placeholder:text-pebble focus-visible:outline-offset-0 aria-invalid:border-error;
+    }
+    & textarea.input { @apply leading-snug; }
+    & .field-error { @apply mt-1 text-[0.82rem] font-semibold text-error; }
+    & .badge { @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-[0.76rem] font-bold whitespace-nowrap; }
+    & .badge-draft { @apply bg-mist text-ink-soft ring-1 ring-line; }
+    & .badge-scheduled { @apply bg-haul/25 text-overnight; }
+    & .badge-published { @apply bg-transit/20 text-ship; }
+    & .table { @apply w-full border-collapse text-left text-[0.92rem]; }
+    & .table th { @apply border-b border-line px-3 py-2 text-[0.78rem] font-bold tracking-wide text-pebble uppercase; }
+    & .table td { @apply border-b border-line px-3 py-2.5 align-top; }
+    & .table tr:last-child td { @apply border-b-0; }
+
+    /* ---------- Previews: Customs Wise design (as on the website) ---------- */
+    & .theme-cw h1, & .theme-cw h2, & .theme-cw h3 {
+      @apply font-display font-normal text-atlantic;
+      line-height: 1.08;
+      letter-spacing: 0.005em;
+      text-wrap: balance;
+    }
+    & .prose-cw h3 { color: var(--color-overnight); }
+
+    /* ---------- Previews: Demo Website design (fictional) ---------- */
+    & .theme-demo { font-family: var(--font-serif); color: var(--color-demo-ink); background: var(--color-demo-sand); }
+    & .theme-demo h1, & .theme-demo h2, & .theme-demo h3 { font-family: var(--font-serif); font-weight: 700; color: var(--color-demo-ink); line-height: 1.2; }
+    & .prose-demo { max-width: 68ch; font-size: 1.08rem; }
+    & .prose-demo p { margin: 0 0 1.1em; }
+    & .prose-demo h2 { font-size: 1.7rem; margin: 1.6em 0 0.5em; }
+    & .prose-demo h3 { font-size: 1.3rem; margin: 1.4em 0 0.4em; }
+    & .prose-demo ul, & .prose-demo ol { padding-left: 1.4em; margin: 0 0 1.2em; }
+    & .prose-demo ul { list-style: square; }
+    & .prose-demo ol { list-style: decimal; }
+    & .prose-demo li { margin: 0.3em 0; }
+    & .prose-demo a { color: var(--color-demo-leaf); text-decoration: underline; }
+    & .prose-demo .callout { background: var(--color-salt); border: 1px solid var(--color-demo-leaf); padding: 1rem 1.25rem; margin: 1.4em 0; }
+    & .prose-demo .callout p { margin: 0; }
+    & .prose-demo blockquote { border-left: 3px solid var(--color-demo-clay); padding-left: 1.2rem; margin: 1.4em 0; font-style: italic; }
+    & .prose-demo blockquote cite { display: block; margin-top: 0.4rem; font-size: 0.9rem; font-style: normal; }
+    & .prose-demo figure { margin: 1.6em 0; }
+    & .prose-demo figure img { height: auto; max-width: 100%; }
+    & .prose-demo figcaption { margin-top: 0.5rem; font-size: 0.88rem; }
+  }
+}
