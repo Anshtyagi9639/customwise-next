@@ -37,11 +37,29 @@ const INDEXES: { collection: string; keys: Record<string, 1 | -1>; unique?: bool
   { collection: "audit", keys: { at: -1 }, name: "at_desc" },
 ];
 
+/** A setting's value without surrounding spaces or one pair of matching quotes (hosting panels may keep typed quotes). */
+function setting(name: string): string {
+  const value = process.env[name]?.trim() ?? "";
+  return /^(["']).*\1$/.test(value) ? value.slice(1, -1).trim() : value;
+}
+
+let lastConfigLog = 0;
+/** Refuses to connect, and says why in the server log (at most once a minute). Never logs the values themselves. */
+function notConfigured(reason: string): never {
+  if (Date.now() - lastConfigLog > 60_000) {
+    lastConfigLog = Date.now();
+    console.error(`[store] MongoDB is not configured on this server: ${reason}`);
+  }
+  throw new StoreUnavailableError(`The CMS database is not configured: ${reason}`);
+}
+
 function config(): { uri: string; name: string } {
-  const uri = process.env.MONGODB_URI?.trim() ?? "";
-  const name = process.env.MONGODB_DB?.trim() ?? "";
-  if (!/^mongodb(\+srv)?:\/\/\S+$/.test(uri)) throw new StoreUnavailableError("MONGODB_URI is not set to a MongoDB connection string.");
-  if (!/^[A-Za-z0-9_-]{1,38}$/.test(name)) throw new StoreUnavailableError("MONGODB_DB must be a database name of letters, numbers, hyphens or underscores.");
+  const uri = setting("MONGODB_URI");
+  const name = setting("MONGODB_DB");
+  if (!uri) notConfigured("MONGODB_URI is not set.");
+  if (!/^mongodb(\+srv)?:\/\/\S+$/.test(uri)) notConfigured(`MONGODB_URI is set but is not a MongoDB connection string${/\s/.test(uri) ? " (it contains a space)" : ""}.`);
+  if (!name) notConfigured("MONGODB_DB is not set.");
+  if (!/^[A-Za-z0-9_-]{1,38}$/.test(name)) notConfigured("MONGODB_DB is not a valid database name (letters, numbers, hyphens or underscores; no spaces).");
   return { uri, name };
 }
 
