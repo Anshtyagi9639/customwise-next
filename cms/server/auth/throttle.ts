@@ -69,3 +69,30 @@ export async function clearFailures(key: ThrottleKey): Promise<void> {
     throw authUnavailable(err);
   }
 }
+
+/* ---------- In memory, for the administrator from the server settings (signs in without the database) ---------- */
+
+type MemoryEntry = { count: number; windowStart: number; lockedUntil: number };
+const MEMORY = Symbol.for("cms.auth.memoryThrottle");
+const gm = globalThis as typeof globalThis & { [MEMORY]?: Map<string, MemoryEntry> };
+const memory = () => (gm[MEMORY] ??= new Map());
+
+/** The same limits as above, kept in this process's memory (cleared when the server restarts). */
+export function memoryLockedFor(keys: ThrottleKey[], now = Date.now()): number {
+  return Math.max(0, ...keys.map((k) => (memory().get(k.id)?.lockedUntil ?? 0) - now));
+}
+
+export function memoryRecordFailure(keys: ThrottleKey[], now = Date.now()): void {
+  const m = memory();
+  for (const [id, e] of m) if (now - e.windowStart > WINDOW_MS + LOCK_MS) m.delete(id);
+  for (const key of keys) {
+    const e = m.get(key.id);
+    const fresh = !e || now - e.windowStart > WINDOW_MS;
+    const count = fresh ? 1 : e.count + 1;
+    m.set(key.id, { count, windowStart: fresh ? now : e.windowStart, lockedUntil: count >= key.limit ? now + LOCK_MS : fresh ? 0 : e.lockedUntil });
+  }
+}
+
+export function memoryClearFailures(key: ThrottleKey): void {
+  memory().delete(key.id);
+}

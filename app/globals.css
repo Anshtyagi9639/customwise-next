@@ -30,11 +30,6 @@
   --color-current: currentColor;
   --color-transparent: transparent;
 
-  /* Blog admin only: the fictional Demo Website shown in CMS previews (cms/components/public/demo.tsx) */
-  --color-demo-ink: #1f2933;
-  --color-demo-leaf: #2f6f4f;
-  --color-demo-sand: #f6f1e7;
-  --color-demo-clay: #b5562b;
 
   /* Display: Gobold per brand guide; Oswald is the self-hosted stand-in (see README) */
   --font-display: var(--font-oswald), "Gobold", "Arial Narrow", sans-serif;

@@ -55,6 +55,16 @@ export async function verifyPassword(password: string, stored: string | null | u
   return sane && expected.length === key.length && timingSafeEqual(key, expected);
 }
 
+/** Whether a value is a stored hash in this module's format, with parameters verifyPassword accepts. */
+export function isPasswordHash(value: string): boolean {
+  const parts = value.split("$");
+  if (parts.length !== 6 || parts[0] !== "scrypt" || ![1, 2, 3].every((i) => /^\d+$/.test(parts[i]))) return false;
+  const [n, r, p] = [Number(parts[1]), Number(parts[2]), Number(parts[3])];
+  const salt = Buffer.from(parts[4], "base64url");
+  const key = Buffer.from(parts[5], "base64url");
+  return n >= 2 ** 14 && n <= 2 ** 20 && r >= 1 && r <= 16 && p >= 1 && p <= 4 && salt.length >= 16 && key.length === KEY_LENGTH;
+}
+
 /** Why a new password is not acceptable, or null. */
 export function passwordProblem(password: string, email?: string): string | null {
   if (password.length < PASSWORD_MIN_LENGTH) return `Use at least ${PASSWORD_MIN_LENGTH} characters.`;

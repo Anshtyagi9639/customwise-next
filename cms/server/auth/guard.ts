@@ -1,12 +1,13 @@
 import "server-only";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { cache } from "react";
 import { SESSION_COOKIE } from "@/cms/lib/auth-shared";
-import { adminUrl } from "@/cms/lib/routes";
+import { HOSTED_SITE_KEY, adminUrl } from "@/cms/lib/routes";
 import { json } from "../http";
 import { StoreUnavailableError } from "../store-errors";
 import { runAs } from "./actor";
+import { DEV_ADMIN, devAccessEnabled } from "./dev-access";
 import { isSameOriginRequest } from "./request";
 import { readSession } from "./sessions";
 import { type AdminRole, type AdminUser, canAccessSite } from "./users";
@@ -18,9 +19,19 @@ import { type AdminRole, type AdminUser, canAccessSite } from "./users";
 
 /** The signed-in administrator for this request, read once per render. */
 export const getCurrentAdmin = cache(async (): Promise<AdminUser | null> => {
+  // `npm run dev:admin` only: never true in a production build (see dev-access.ts).
+  if (devAccessEnabled((await headers()).get("host"))) return DEV_ADMIN;
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   return token ? ((await readSession(token))?.user ?? null) : null;
 });
+
+/**
+ * Where a signed-in user starts: the Customs Wise management screen, or the dashboard for someone who has not been
+ * given Customs Wise (where it says they have no websites yet) instead of a "not found" page.
+ */
+export function landingPage(user: AdminUser): string {
+  return canAccessSite(user, HOSTED_SITE_KEY) ? adminUrl.home : adminUrl.dashboard;
+}
 
 /** For admin pages: the signed-in user, or a redirect to the sign-in page. A website the user may not manage is a 404. */
 export async function requireAdminPage(opts: { siteKey?: string; role?: AdminRole } = {}): Promise<AdminUser> {

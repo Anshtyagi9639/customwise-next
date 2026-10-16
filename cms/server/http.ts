@@ -1,6 +1,7 @@
 import "server-only";
 import type { Site } from "@/cms/lib/types";
 import { StoreUnavailableError, readDb } from "./store";
+import { findSite } from "./sites";
 
 /** Small helpers shared by the route handlers. */
 
@@ -27,7 +28,7 @@ export const notFound = (message = "Not found.") => json({ error: "not_found", m
 export const badRequest = (message: string, fieldErrors: Record<string, string> = {}) => json({ error: "invalid", message, fieldErrors }, 400);
 
 export async function siteByKey(key: string): Promise<Site | undefined> {
-  return (await readDb()).sites.find((s) => s.key === key);
+  return findSite(await readDb(), key);
 }
 
 export async function readJson(request: Request): Promise<unknown> {

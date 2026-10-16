@@ -13,7 +13,12 @@ import { blogPosts } from "./blog";
  * never empties the blog. Changing BLOG_SOURCE back to static (and restarting) is the rollback.
  */
 
-export type BlogSource = { posts: BlogPost[]; origin: "built-in" | "cms" | "built-in-fallback" };
+/**
+ * origin: "built-in" (BLOG_SOURCE=static), "cms", "cms-empty" (the CMS has no published article for this website, so
+ * the built-in ones are shown), or "cms-unavailable" (the CMS could not be read, so the built-in ones are shown and
+ * an article that exists only in the CMS is a temporary error, never a 404).
+ */
+export type BlogSource = { posts: BlogPost[]; origin: "built-in" | "cms" | "cms-empty" | "cms-unavailable" };
 
 /** The CMS's record for this website (see cms/lib/routes.ts). */
 const SITE_KEY = "customs-wise";
@@ -33,7 +38,7 @@ export const loadBlog = cache(async (): Promise<BlogSource> => {
     const published = await withTimeout(websitePosts(SITE_KEY), 10_000);
     if (published.length === 0) {
       console.warn("[blog] The CMS has no published articles for this website; showing the built-in articles instead.");
-      return { posts: blogPosts, origin: "built-in-fallback" };
+      return { posts: blogPosts, origin: "cms-empty" };
     }
     const rich = (text: string): RichText => {
       const parts = parseInline(text);
@@ -71,7 +76,7 @@ export const loadBlog = cache(async (): Promise<BlogSource> => {
     });
     return { posts, origin: "cms" };
   } catch (err) {
-    console.error(`[blog] The CMS could not be read (${(err as Error)?.name ?? "Error"}); showing the built-in articles instead.`);
-    return { posts: blogPosts, origin: "built-in-fallback" };
+    console.error(`[blog] The CMS could not be read (${(err as Error)?.name ?? "Error"}); showing the built-in articles instead. Articles that exist only in the CMS answer "temporarily unavailable" until it is back, not 404.`);
+    return { posts: blogPosts, origin: "cms-unavailable" };
   }
 });

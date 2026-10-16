@@ -2,6 +2,7 @@ import { requireAdminPage } from "@/cms/server/auth/guard";
 import { notFound } from "next/navigation";
 import { AuthorsManager } from "@/cms/components/admin/managers";
 import { readDb } from "@/cms/server/store";
+import { enabledSites, findSite } from "@/cms/server/sites";
 
 export const metadata = { title: "Authors" };
 
@@ -9,7 +10,7 @@ export default async function AuthorsPage({ params }: { params: Promise<{ site: 
   const { site: key } = await params;
   await requireAdminPage({ siteKey: key, role: "admin" });
   const db = await readDb();
-  const site = db.sites.find((s) => s.key === key);
+  const site = findSite(db, key);
   if (!site) notFound();
   const counts: Record<string, number> = {};
   for (const p of db.posts) if (p.authorId) counts[p.authorId] = (counts[p.authorId] ?? 0) + 1;
@@ -20,7 +21,7 @@ export default async function AuthorsPage({ params }: { params: Promise<{ site: 
         <h1 className="page-title">Authors</h1>
         <p className="text-[0.95rem] text-ink-soft">Authors are shared by the CMS. Each one is ticked for the websites they write for, and can only be chosen on those.</p>
       </div>
-      <AuthorsManager site={site} sites={db.sites.map((s) => ({ id: s.id, name: s.name }))} authors={db.authors} counts={counts} />
+      <AuthorsManager site={site} sites={enabledSites(db).map((s) => ({ id: s.id, name: s.name }))} authors={db.authors} counts={counts} />
     </div>
   );
 }

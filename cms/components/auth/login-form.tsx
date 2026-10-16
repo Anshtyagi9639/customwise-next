@@ -1,10 +1,12 @@
 "use client";
 
 import { Eye, EyeOff, Loader2, LogIn } from "lucide-react";
-import { useRef, useState } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import { adminApi } from "@/cms/lib/routes";
 
 type Errors = { email?: string; password?: string; form?: string };
+
+const noSubscription = () => () => {};
 
 /**
  * The sign-in form. The browser only checks that both fields are filled in; the server decides everything else and
@@ -18,6 +20,9 @@ export function LoginForm() {
   const [errors, setErrors] = useState<Errors>({});
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
+  // False in the server's HTML, true once this script runs. Until then the Sign in button is disabled, so the browser
+  // cannot submit the form natively (which would put the email address and password in the address bar).
+  const ready = useSyncExternalStore(noSubscription, () => true, () => false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -28,6 +33,14 @@ export function LoginForm() {
     setErrors(found);
     if (found.email) return emailRef.current?.focus();
     if (found.password) return passwordRef.current?.focus();
+    // In a production build the session cookie is Secure (__Secure- prefix), so browsers keep it only over HTTPS or on
+    // localhost. On any other http:// address the sign-in would succeed and then fall straight back to this page, so
+    // say so instead, before the password is sent over an unencrypted connection. (next dev uses a plain cookie.)
+    if (!window.isSecureContext && process.env.NODE_ENV !== "development") {
+      const local = `http://localhost${window.location.port ? `:${window.location.port}` : ""}${window.location.pathname}`;
+      setErrors({ form: `Signing in needs a secure address: HTTPS, or localhost on this computer. At this address the browser would refuse the sign-in cookie. Open ${local} instead.` });
+      return;
+    }
 
     setBusy(true);
     try {
@@ -48,7 +61,7 @@ export function LoginForm() {
   }
 
   return (
-    <form onSubmit={submit} noValidate aria-describedby={errors.form ? "login-error" : undefined} className="grid gap-4">
+    <form method="post" onSubmit={submit} noValidate aria-describedby={errors.form ? "login-error" : undefined} className="grid gap-4">
       {errors.form && (
         <p id="login-error" role="alert" className="rounded-brand border-l-4 border-error bg-mist px-3 py-2 text-[0.9rem] font-semibold text-error">
           {errors.form}
@@ -122,7 +135,7 @@ export function LoginForm() {
           </p>
         )}
       </div>
-      <button type="submit" className="btn btn-primary min-h-11 w-full" disabled={busy} aria-busy={busy}>
+      <button type="submit" className="btn btn-primary min-h-11 w-full" disabled={busy || !ready} aria-busy={busy}>
         {busy ? <Loader2 aria-hidden className="size-4 animate-spin" /> : <LogIn aria-hidden className="size-4" />}
         {busy ? "Signing in…" : "Sign in"}
       </button>

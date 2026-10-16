@@ -2,6 +2,7 @@ import "server-only";
 import { z } from "zod";
 import { SLUG_PATTERN, slugify } from "@/cms/lib/content";
 import type { Author, Category, FieldErrors, Site } from "@/cms/lib/types";
+import { enabledSites } from "./sites";
 import { StoreConflictError, audit, mutateDb, newId } from "./store";
 
 /** Categories (per website), authors (shared, linked to websites) and website settings. */
@@ -70,8 +71,12 @@ export function saveAuthor(id: string | null, raw: unknown): Promise<Result<Auth
     if (!parsed.success) return invalid({ name: parsed.error.issues[0]?.message ?? "Enter the author's name." });
     const profileUrls = parsed.data.profileUrls.filter(Boolean);
     if (profileUrls.some((u) => !/^https?:\/\/[^\s]+$/i.test(u))) return invalid({ profileUrls: "Each profile link must be a full web address starting with https://." });
-    const siteIds = parsed.data.siteIds.filter((s) => db.sites.some((site) => site.id === s));
-    if (siteIds.length === 0) return invalid({ siteIds: "Choose at least one website this author writes for." });
+    const visible = new Set(enabledSites(db).map((site) => site.id));
+    const chosen = parsed.data.siteIds.filter((s) => visible.has(s));
+    if (chosen.length === 0) return invalid({ siteIds: "Choose at least one website this author writes for." });
+    // Websites hidden from the admin (cms/server/sites.ts) cannot be ticked or un-ticked, so the author keeps them.
+    const hidden = id ? (db.authors.find((a) => a.id === id)?.siteIds ?? []).filter((s) => !visible.has(s)) : [];
+    const siteIds = [...chosen, ...hidden];
     const fields = { ...parsed.data, profileUrls, siteIds, slug: slugify(parsed.data.name) };
     if (id) {
       const index = db.authors.findIndex((a) => a.id === id);

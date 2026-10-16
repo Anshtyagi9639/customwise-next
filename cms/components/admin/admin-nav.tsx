@@ -19,23 +19,32 @@ export function AdminNav({ siteKey, sites, role }: { siteKey: string; sites: { k
   const base = `/admin-blog/sites/${siteKey}`;
   return (
     <>
-      <div>
-        <label className="mb-1 block text-[0.72rem] font-bold tracking-[0.12em] text-starlight uppercase" htmlFor="site-switch">
-          Website
-        </label>
-        <select
-          id="site-switch"
-          className="min-h-10 w-full rounded-brand border border-salt/25 bg-ship px-2.5 text-[0.92rem] font-semibold text-salt"
-          value={siteKey}
-          onChange={(e) => router.push(`/admin-blog/sites/${e.target.value}`)}
-        >
-          {sites.map((s) => (
-            <option key={s.key} value={s.key}>
-              {s.name} ({s.note})
-            </option>
-          ))}
-        </select>
-      </div>
+      {sites.length <= 1 ? (
+        <div>
+          <p className="mb-1 text-[0.72rem] font-bold tracking-[0.12em] text-starlight uppercase">Website</p>
+          <p className="flex min-h-10 items-center text-[0.95rem] font-semibold text-salt" data-testid="site-name">
+            {sites[0]?.name}
+          </p>
+        </div>
+      ) : (
+        <div>
+          <label className="mb-1 block text-[0.72rem] font-bold tracking-[0.12em] text-starlight uppercase" htmlFor="site-switch">
+            Website
+          </label>
+          <select
+            id="site-switch"
+            className="min-h-10 w-full rounded-brand border border-salt/25 bg-ship px-2.5 text-[0.92rem] font-semibold text-salt"
+            value={siteKey}
+            onChange={(e) => router.push(`/admin-blog/sites/${e.target.value}`)}
+          >
+            {sites.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.name} ({s.note})
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <nav aria-label="CMS" className="mt-4">
         <ul className="flex flex-wrap gap-1 lg:flex-col">
           {ITEMS.filter((item) => role === "admin" || !("adminOnly" in item)).map((item) => {

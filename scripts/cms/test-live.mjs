@@ -21,7 +21,7 @@ const CMS = BASE;
 mkdirSync(path.join(process.cwd(), ".cms-data"), { recursive: true });
 const stateFile = path.join(process.cwd(), ".cms-data", "live-test.json");
 const mode = process.argv.includes("--cleanup") ? "cleanup" : process.argv.includes("--verify") ? "verify" : "run";
-const SITES = ["customs-wise", "demo-website"];
+const SITES = ["customs-wise"]; // the only website the CMS manages (cms/server/sites.ts)
 const account = { cloud_name: process.env.CLOUDINARY_CLOUD_NAME?.trim(), api_key: process.env.CLOUDINARY_API_KEY?.trim(), api_secret: process.env.CLOUDINARY_API_SECRET?.trim(), secure: true };
 const secrets = [process.env.CLOUDINARY_API_SECRET, process.env.CLOUDINARY_API_KEY, process.env.MONGODB_URI, /\/\/[^:]+:([^@]+)@/.exec(process.env.MONGODB_URI ?? "")?.[1]].map((s) => s?.trim()).filter((s) => s && s.length > 5);
 

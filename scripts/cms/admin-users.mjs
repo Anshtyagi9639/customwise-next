@@ -1,7 +1,8 @@
-// Blog admin accounts: create the first administrator, reset a forgotten password, lock or unlock an account.
-// Run by someone with access to the database (MONGODB_URI and MONGODB_DB in .env.local); there is no web page or API
-// that creates accounts or resets passwords. Nothing secret is printed.
+// Blog admin accounts from the command line: create the first administrator, and recover access when no administrator
+// can sign in. Run by someone with access to the database (MONGODB_URI and MONGODB_DB in .env.local). Once an
+// administrator can sign in, other people are invited from the Users screen instead. Nothing secret is printed.
 //
+//   npm run cms:admin -- check                                       (which database this would change; changes nothing)
 //   npm run cms:admin -- create --email you@example.com --name "Your Name"          (administrator: every website)
 //   npm run cms:admin -- create --email ed@example.com --role editor --sites customs-wise
 //   npm run cms:admin -- set-password --email you@example.com      (forgotten password; signs the account out everywhere)
@@ -12,10 +13,16 @@
 //
 // The password is asked for twice and not shown. For automation only, it can be given in the environment variable
 // CMS_ADMIN_PASSWORD instead (never on the command line, where it would be kept in the shell history).
-import { createHash, randomBytes, scrypt } from "node:crypto";
+//
+// Every command that changes something first shows the database it is connected to (server address and database
+// name, never the user name or password) and asks you to type the database name to continue. Without a terminal,
+// give it as --confirm-db <name> instead. Other people are added from the Users screen, with an invitation link.
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { MongoClient } from "mongodb";
+import { mongoFailure } from "./lib/mongo-failure.mjs";
+import { askNewPassword, hashPassword } from "./lib/password-cli.mjs";
 
 for (const file of [".env.local", ".env"]) if (existsSync(path.join(process.cwd(), file))) process.loadEnvFile(path.join(process.cwd(), file));
 
@@ -32,80 +39,51 @@ const stop = (message) => {
 const uri = process.env.MONGODB_URI?.trim() ?? "";
 const dbName = process.env.MONGODB_DB?.trim() ?? "";
 if (!/^mongodb(\+srv)?:\/\/\S+$/.test(uri) || !/^[A-Za-z0-9_-]{1,38}$/.test(dbName)) stop("MONGODB_URI and MONGODB_DB must be set (in .env.local, or the environment).");
+/** The server part of the connection string only: no user name, no password, no options. */
+const serverAddress = uri.replace(/^mongodb(\+srv)?:\/\//, "").split(/[/?]/)[0].split("@").pop();
 
-/* Same format and parameters as cms/server/auth/password.ts */
-const N = 2 ** 17;
-const R = 8;
-const P = 1;
-function hashPassword(password) {
-  const salt = randomBytes(16);
-  return new Promise((resolve, reject) =>
-    scrypt(password.normalize("NFC"), salt, 64, { N, r: R, p: P, maxmem: 256 * 1024 * 1024 }, (err, key) => (err ? reject(err) : resolve(`scrypt$${N}$${R}$${P}$${salt.toString("base64url")}$${key.toString("base64url")}`))),
-  );
-}
-function passwordProblem(password, email) {
-  if (password.length < 12) return "Use at least 12 characters.";
-  if (password.length > 200) return "Use at most 200 characters.";
-  if (/^(.)\1+$/.test(password)) return "Do not use one character repeated.";
-  const local = email.toLowerCase().split("@")[0];
-  if (local.length >= 4 && password.toLowerCase().includes(local)) return "Do not include your email address in the password.";
-  return null;
-}
-
-/** Reads a line without showing what is typed. */
-function hiddenPrompt(question) {
+/** Reads a line that may be shown (not a password). */
+function visiblePrompt(question) {
   return new Promise((resolve) => {
-    const stdin = process.stdin;
     process.stdout.write(question);
-    if (!stdin.isTTY) stop("\nThis needs an interactive terminal to ask for the password (or set CMS_ADMIN_PASSWORD).");
-    stdin.setRawMode(true);
-    stdin.resume();
-    stdin.setEncoding("utf8");
-    let value = "";
-    const onData = (ch) => {
-      for (const c of ch) {
-        if (c === "\r" || c === "\n") {
-          stdin.setRawMode(false);
-          stdin.pause();
-          stdin.off("data", onData);
-          process.stdout.write("\n");
-          return resolve(value);
-        }
-        if (c === "\u0003") process.exit(130); // Ctrl+C
-        if (c === "\u0008" || c === "\u007f") value = value.slice(0, -1);
-        else value += c;
-      }
-    };
-    stdin.on("data", onData);
+    process.stdin.resume();
+    process.stdin.setEncoding("utf8");
+    process.stdin.once("data", (line) => {
+      process.stdin.pause();
+      resolve(String(line).trim());
+    });
   });
 }
 
-async function newPassword(email) {
-  if (process.env.CMS_ADMIN_PASSWORD) {
-    const problem = passwordProblem(process.env.CMS_ADMIN_PASSWORD, email);
-    if (problem) stop(`The password in CMS_ADMIN_PASSWORD is not accepted: ${problem}`);
-    return process.env.CMS_ADMIN_PASSWORD;
+/** Before any change: shows where it will happen and needs the database name typed (or --confirm-db) to go on. */
+async function confirmTarget() {
+  const given = opt("confirm-db");
+  if (given !== undefined) {
+    if (given !== dbName) stop(`--confirm-db ${given} does not match the database this would change (${dbName}). Nothing was changed.`);
+    return;
   }
-  for (;;) {
-    const first = await hiddenPrompt("New password (at least 12 characters, not shown): ");
-    const problem = passwordProblem(first, email);
-    if (problem) {
-      console.log(problem);
-      continue;
-    }
-    if ((await hiddenPrompt("Type it again: ")) === first) return first;
-    console.log("The two passwords are not the same. Try again.");
-  }
+  if (!process.stdin.isTTY) stop("This needs an interactive terminal to confirm the database (or give --confirm-db <name>). Nothing was changed.");
+  if ((await visiblePrompt(`Type the database name (${dbName}) to continue: `)) !== dbName) stop("The name does not match. Nothing was changed.");
+}
+
+const newPassword = (email) => askNewPassword(email, stop);
+
+if (!["check", "list", "create", "set-password", "disable", "enable", "unlock", "sign-out"].includes(command)) {
+  stop("Commands: check, create, set-password, list, disable, enable, unlock, sign-out. See the top of scripts/cms/admin-users.mjs.");
 }
 
 const client = new MongoClient(uri, { serverSelectionTimeoutMS: 15000, appName: "customs-wise-cms-admin-tool" });
 try {
+  console.log(`Database: ${dbName} on ${serverAddress}${/^(127\.0\.0\.1|localhost)(:|$)/.test(serverAddress) ? " (this computer)" : ""}`);
   await client.connect();
   const db = client.db(dbName);
+  const readOnly = command === "list" || command === "check";
   const users = db.collection("admin_users");
+  if (!readOnly) await confirmTarget();
   await users.createIndex({ email: 1 }, { unique: true, name: "email_unique" });
   const sessions = db.collection("admin_sessions");
   const throttle = db.collection("admin_login_throttle");
+  const setupLinks = db.collection("admin_setup_tokens");
   const log = (action, targetId, summary) => db.collection("audit").insertOne({ _id: `log_${randomBytes(9).toString("base64url")}`, at: new Date().toISOString(), siteId: null, actor: "admin-tool", action, targetId, summary });
   const email = opt("email")?.trim().toLowerCase();
   const needEmail = () => {
@@ -132,17 +110,27 @@ try {
     await log("auth.user_create", id, `${email} (${role})`);
     console.log(`Account created: ${email} (${role === "admin" ? "administrator, every website" : `editor: ${siteKeys.join(", ")}`}). Sign in at /admin-blog.`);
   } else if (command === "set-password") {
+    if ((process.env.ADMIN_EMAIL ?? "").trim().toLowerCase() === needEmail()) {
+      stop(`${email} is the administrator from the server settings (ADMIN_EMAIL). Its password is ADMIN_PASSWORD_HASH: change it with npm run cms:admin-env.`);
+    }
     const user = await findUser();
     const passwordHash = await hashPassword(await newPassword(email));
     const now = new Date();
-    await users.updateOne({ _id: user._id }, { $set: { passwordHash, passwordChangedAt: now, updatedAt: now } });
+    // An invited account becomes active, as if its owner had used the invitation link.
+    await users.updateOne({ _id: user._id }, { $set: { passwordHash, passwordChangedAt: now, updatedAt: now, ...(user.status === "invited" ? { status: "active" } : {}) } });
+    await setupLinks.deleteMany({ userId: user._id });
     const ended = (await sessions.deleteMany({ userId: user._id })).deletedCount;
     await throttle.deleteOne({ _id: emailThrottleId(email) });
     await log("auth.password_reset", user._id, `${email} (${ended} session(s) ended)`);
     console.log(`Password changed for ${email}. ${ended} session(s) signed out.`);
   } else if (command === "disable" || command === "enable") {
     const user = await findUser();
+    if (command === "enable" && user.status === "invited") stop(`${email} has not set a password yet. Send a new invitation link from Users, or use set-password.`);
+    if (command === "disable" && user.role === "admin" && user.status === "active" && (await users.countDocuments({ role: "admin", status: "active" })) <= 1) {
+      stop(`${email} is the only active administrator, so it is not disabled. Create or enable another administrator first.`);
+    }
     await users.updateOne({ _id: user._id }, { $set: { status: command === "disable" ? "disabled" : "active", updatedAt: new Date() } });
+    if (command === "disable") await setupLinks.deleteMany({ userId: user._id });
     const ended = command === "disable" ? (await sessions.deleteMany({ userId: user._id })).deletedCount : 0;
     await log(`auth.user_${command}`, user._id, email);
     console.log(`${email} ${command === "disable" ? `disabled; ${ended} session(s) signed out` : "enabled"}.`);
@@ -159,11 +147,19 @@ try {
     const all = await users.find({}, { projection: { passwordHash: 0 } }).sort({ email: 1 }).toArray();
     if (all.length === 0) console.log("No accounts yet. Create the first one with: npm run cms:admin -- create --email you@example.com");
     for (const u of all) console.log(`${u.email.padEnd(36)} ${u.role.padEnd(7)} ${u.status.padEnd(9)} ${u.role === "admin" ? "all websites" : u.siteKeys.join(", ")}   last sign-in: ${u.lastLoginAt ? new Date(u.lastLoginAt).toISOString().slice(0, 16).replace("T", " ") : "never"}`);
+  } else if (command === "check") {
+    const sites = await db.collection("sites").countDocuments();
+    const admins = await users.countDocuments({ role: "admin", status: "active" });
+    const all = await users.countDocuments();
+    console.log(`Connected. Websites: ${sites}. Accounts: ${all}, of which active administrators: ${admins}. Nothing was changed.`);
+    if (sites === 0) console.log("Warning: this database has no websites. If you expected the live blog data, check MONGODB_DB.");
+    if (all === 0) console.log("No accounts yet: create the first administrator with the create command.");
   } else {
-    stop("Commands: create, set-password, list, disable, enable, unlock, sign-out. See the top of scripts/cms/admin-users.mjs.");
+    stop("Commands: check, create, set-password, list, disable, enable, unlock, sign-out. See the top of scripts/cms/admin-users.mjs.");
   }
 } catch (err) {
-  stop(`Stopped: ${err?.name ?? "Error"}${err?.code !== undefined ? ` (code ${err.code})` : ""}. Check MONGODB_URI, the database user and the Atlas network access list.`);
+  const f = mongoFailure(err);
+  stop(`Stopped (${f.kind}): ${f.advice}. [${f.summary}]`);
 } finally {
   await client.close().catch(() => undefined);
 }

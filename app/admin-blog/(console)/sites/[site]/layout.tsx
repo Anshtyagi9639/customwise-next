@@ -1,17 +1,19 @@
 import { ExternalLink } from "lucide-react";
 import { notFound } from "next/navigation";
 import { AdminNav } from "@/cms/components/admin/admin-nav";
-import { publicUrl } from "@/cms/lib/routes";
+import { BlogSourceNote, blogShowsCms } from "@/cms/components/admin/blog-source-note";
+import { HOSTED_SITE_KEY, publicUrl } from "@/cms/lib/routes";
 import { requireAdminPage } from "@/cms/server/auth/guard";
 import { canAccessSite } from "@/cms/server/auth/users";
 import { readDb } from "@/cms/server/store";
+import { enabledSites, findSite } from "@/cms/server/sites";
 
 /** The screens of one website: the website switcher and its menu on the left. */
 export default async function SiteLayout({ children, params }: { children: React.ReactNode; params: Promise<{ site: string }> }) {
   const { site: key } = await params;
   const user = await requireAdminPage({ siteKey: key });
   const db = await readDb();
-  const site = db.sites.find((s) => s.key === key);
+  const site = findSite(db, key);
   if (!site) notFound();
   const listing = publicUrl(site, site.listingPath);
 
@@ -21,13 +23,16 @@ export default async function SiteLayout({ children, params }: { children: React
         <AdminNav
           siteKey={site.key}
           role={user.role}
-          sites={db.sites.filter((s) => canAccessSite(user, s.key)).map((s) => ({ key: s.key, name: s.name, note: s.note }))}
+          sites={enabledSites(db).filter((s) => canAccessSite(user, s.key)).map((s) => ({ key: s.key, name: s.name, note: s.note }))}
         />
         <a href={listing.href} target="_blank" rel="noopener noreferrer" className="flex min-h-10 items-center gap-2 rounded-brand border border-salt/25 px-3 text-[0.9rem] font-semibold text-salt hover:bg-salt/10">
           <ExternalLink aria-hidden className="size-4" /> Open the website&apos;s blog
         </a>
       </aside>
-      <div className="min-w-0 px-4 py-6 sm:px-6 lg:py-8">{children}</div>
+      <div className="min-w-0 px-4 py-6 sm:px-6 lg:py-8">
+        {site.key === HOSTED_SITE_KEY && !blogShowsCms() && <BlogSourceNote className="mb-5" />}
+        {children}
+      </div>
     </div>
   );
 }

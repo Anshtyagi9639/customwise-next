@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { PostTable } from "@/cms/components/admin/post-table";
 import { displayStatus, formatDateTime } from "@/cms/lib/content";
 import { readDb } from "@/cms/server/store";
+import { enabledSites, findSite } from "@/cms/server/sites";
 
 export const metadata = { title: "Dashboard" };
 
@@ -12,7 +13,7 @@ export default async function Dashboard({ params }: { params: Promise<{ site: st
   const { site: key } = await params;
   const user = await requireAdminPage({ siteKey: key });
   const db = await readDb();
-  const site = db.sites.find((s) => s.key === key);
+  const site = findSite(db, key);
   if (!site) notFound();
 
   const posts = db.posts.filter((p) => p.siteId === site.id).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
@@ -23,7 +24,7 @@ export default async function Dashboard({ params }: { params: Promise<{ site: st
     { status: "published" as const, title: "Published", empty: "Nothing is published on this website yet." },
   ];
   const categories = db.categories.filter((c) => c.siteId === site.id);
-  const otherSites = db.sites.filter((s) => s.id !== site.id && canAccessSite(user, s.key)).map((s) => ({ key: s.key, name: s.name }));
+  const otherSites = enabledSites(db).filter((s) => s.id !== site.id && canAccessSite(user, s.key)).map((s) => ({ key: s.key, name: s.name }));
   // Account events (siteId null) are shown to administrators only.
   const activity = db.audit.filter((a) => a.siteId === site.id || (a.siteId === null && user.role === "admin")).slice(0, 8);
 

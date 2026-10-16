@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { PostTable } from "@/cms/components/admin/post-table";
 import { displayStatus } from "@/cms/lib/content";
 import { readDb } from "@/cms/server/store";
+import { enabledSites, findSite } from "@/cms/server/sites";
 
 export const metadata = { title: "All Posts" };
 
@@ -15,7 +16,7 @@ export default async function AllPosts({ params, searchParams }: { params: Promi
   const user = await requireAdminPage({ siteKey: key });
   const query = await searchParams;
   const db = await readDb();
-  const site = db.sites.find((s) => s.key === key);
+  const site = findSite(db, key);
   if (!site) notFound();
 
   const status = STATUSES.find((s) => s === query.status) ?? "all";
@@ -86,7 +87,7 @@ export default async function AllPosts({ params, searchParams }: { params: Promi
           posts={posts}
           categories={categories}
           authors={db.authors}
-          otherSites={db.sites.filter((s) => s.id !== site.id && canAccessSite(user, s.key)).map((s) => ({ key: s.key, name: s.name }))}
+          otherSites={enabledSites(db).filter((s) => s.id !== site.id && canAccessSite(user, s.key)).map((s) => ({ key: s.key, name: s.name }))}
           empty={all.length === 0 ? "This website has no articles yet. Create the first one." : "No articles match these filters."}
         />
       </div>

@@ -1,8 +1,7 @@
 import type { PublicCard, PublicPost, Site } from "@/cms/lib/types";
 import { CwArticle, CwChrome, CwListing } from "./customs-wise";
-import { DemoArticle, DemoChrome, DemoListing } from "./demo";
 
-/** Picks the design for a website. Each website's blog is rendered by its own components. */
+/** The design of the Customs Wise blog, used for previews in the admin (the only website the CMS manages). */
 
 export function TestBanner({ site, children }: { site: Site; children?: React.ReactNode }) {
   return (
@@ -16,13 +15,13 @@ export function TestBanner({ site, children }: { site: Site; children?: React.Re
 }
 
 export function SiteChrome({ site, children }: { site: Site; children: React.ReactNode }) {
-  return site.theme === "customs-wise" ? <CwChrome site={site}>{children}</CwChrome> : <DemoChrome site={site}>{children}</DemoChrome>;
+  return <CwChrome site={site}>{children}</CwChrome>;
 }
 
 export function ArticleView({ site, post, related }: { site: Site; post: PublicPost; related: PublicCard[] }) {
-  return site.theme === "customs-wise" ? <CwArticle site={site} post={post} related={related} /> : <DemoArticle site={site} post={post} related={related} />;
+  return <CwArticle site={site} post={post} related={related} />;
 }
 
 export function ListingView(props: { site: Site; posts: PublicCard[]; categories: { slug: string; label: string; count: number }[]; active?: string }) {
-  return props.site.theme === "customs-wise" ? <CwListing {...props} /> : <DemoListing {...props} />;
+  return <CwListing {...props} />;
 }

@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE } from "@/cms/lib/auth-shared";
+import { devAccessEnabled } from "@/cms/server/auth/dev-access";
 import { blogPosts } from "@/lib/content/blog-posts";
 
 /**
@@ -8,7 +9,10 @@ import { blogPosts } from "@/lib/content/blog-posts";
  */
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  return pathname.startsWith("/insights/blog/") ? articleAddress(request, pathname.slice("/insights/blog/".length)) : adminArea(request, pathname);
+  if (pathname.startsWith("/insights/blog/")) return articleAddress(request, pathname.slice("/insights/blog/".length));
+  if (pathname === "/admin-blog" || pathname.startsWith("/admin-blog/")) return adminArea(request, pathname);
+  // Anything else the matcher lets through (such as /insights/blog itself) is a public address: left untouched.
+  return NextResponse.next();
 }
 
 /* ---------------------------------------------------------------------------------------------------------------- */
@@ -33,11 +37,29 @@ async function articleAddress(request: NextRequest, slug: string) {
     known = BUILT_IN_SLUGS.has(decodeURIComponent(slug));
   }
   if (known === false) {
+    if (process.env.NODE_ENV === "development") await explainNotFound(slug);
     const url = request.nextUrl.clone();
     url.pathname = "/insights/blog-article-not-found"; // matches no route: the website's 404 page, status 404
     return NextResponse.rewrite(url);
   }
   return NextResponse.next();
+}
+
+/** next dev only: says in the terminal why an article address is a 404 (production stays quiet). */
+async function explainNotFound(rawSlug: string) {
+  const slug = decodeURIComponent(rawSlug);
+  if (process.env.BLOG_SOURCE?.trim().toLowerCase() !== "cms") {
+    console.info(`[blog] /insights/blog/${slug} is a 404: BLOG_SOURCE is not "cms", so the website shows only its built-in articles, not those published in the CMS. Set BLOG_SOURCE=cms in .env and restart.`);
+    return;
+  }
+  const { unpublishedReason } = await import("@/cms/server/published-slugs");
+  const reason = await unpublishedReason("customs-wise", slug);
+  const why =
+    reason === "draft" ? "it is a draft in the CMS (publish it to show it)" :
+    reason === "scheduled" ? "it is scheduled in the CMS and not public yet" :
+    reason === "not-in-cms" ? "there is no article with this address in the CMS (check the slug)" :
+    "the CMS could not be read to say why";
+  console.info(`[blog] /insights/blog/${slug} is a 404: ${why}.`);
 }
 
 /* ---------------------------------------------------------------------------------------------------------------- */
@@ -52,10 +74,12 @@ async function articleAddress(request: NextRequest, slug: string) {
 function adminArea(request: NextRequest, pathname: string) {
   const isSignIn = pathname === "/admin-blog" || pathname === "/admin-blog/";
   const isApi = pathname.startsWith("/admin-blog/api/");
-  const isOpenApi = pathname === "/admin-blog/api/auth/login" || pathname === "/admin-blog/api/auth/logout" || pathname === "/admin-blog/api/health";
+  // Opened from an emailed link (invitation, password reset, or sign-in link), before the person has a session.
+  const isSetup = ["/admin-blog/setup", "/admin-blog/setup/", "/admin-blog/auth", "/admin-blog/auth/"].includes(pathname);
+  const isOpenApi = ["/admin-blog/api/auth/login", "/admin-blog/api/auth/logout", "/admin-blog/api/auth/setup", "/admin-blog/api/auth/link", "/admin-blog/api/health"].includes(pathname);
 
   let response: NextResponse;
-  if (!request.cookies.has(SESSION_COOKIE) && !isSignIn && !isOpenApi) {
+  if (!request.cookies.has(SESSION_COOKIE) && !isSignIn && !isSetup && !isOpenApi && !devAccessEnabled(request.headers.get("host"))) {
     if (isApi) {
       response = NextResponse.json({ error: "unauthenticated", message: "Your session has ended. Sign in again." }, { status: 401 });
     } else {

@@ -16,7 +16,9 @@ const extraLocks = [];
 
 try {
   const admin = await createTestUser(db, { role: "admin" });
-  const editor = await createTestUser(db, { role: "editor", siteKeys: ["demo-website"] });
+  const editor = await createTestUser(db, { role: "editor", siteKeys: ["customs-wise"] });
+  // An editor whose only website is one the CMS no longer manages (the old demo website): no access to anything.
+  const outsider = await createTestUser(db, { role: "editor", siteKeys: ["demo-website"] });
   const disabled = await createTestUser(db, { role: "admin", status: "disabled" });
   const unknown = `zz-nobody-${randomBytes(4).toString("hex")}@example.invalid`;
   extraLocks.push(emailThrottleId(unknown));
@@ -35,6 +37,10 @@ try {
   for (const path of ["/admin-blog/dashboard", "/admin-blog/account", "/admin-blog/sites/customs-wise", "/admin-blog/sites/customs-wise/posts/new", "/admin-blog/preview/customs-wise/anything"]) {
     const r = await request(path);
     check(`${path} redirects to sign-in`, [307, 308].includes(r.status) && new URL(r.headers.get("location") ?? "", BASE).pathname === "/admin-blog", `${r.status} ${r.headers.get("location")}`);
+  }
+  for (const path of ["/insights/blog", "/admin-blogger", "/insights"]) {
+    const r = await request(path);
+    check(`${path} is a public address, never sent to the admin sign-in`, !(r.headers.get("location") ?? "").includes("/admin-blog"), `${r.status} ${r.headers.get("location")}`);
   }
   const forged = `${SESSION_COOKIE}=${randomBytes(32).toString("base64url")}`;
   for (const path of ["/admin-blog/dashboard", "/admin-blog/sites/customs-wise/posts"]) {
@@ -79,7 +85,7 @@ try {
 
   const good = await signIn(admin.email, admin.password);
   check("the right email and password are accepted", good.status === 200 && Boolean(good.cookie), `${good.status} ${good.data.message ?? ""}`);
-  check("the answer sends the browser to the dashboard", good.data.redirect === "/admin-blog/dashboard");
+  check("the answer sends the browser to Manage Customs Wise", good.data.redirect === "/admin-blog/sites/customs-wise", good.data.redirect);
   const attrs = good.rawCookie.toLowerCase();
   check("the session cookie is HttpOnly, Secure, SameSite=Strict and limited to /admin-blog", attrs.includes("httponly") && attrs.includes("secure") && attrs.includes("samesite=strict") && attrs.includes("path=/admin-blog"), good.rawCookie.replace(/=([^;]{6})[^;]*/, "=$1…"));
   check("no password or hash is ever in the answer", !/password|scrypt\$/i.test(JSON.stringify(good.data)));
@@ -92,7 +98,7 @@ try {
   const dash = await as("/admin-blog/dashboard");
   check("signed in, the dashboard opens", dash.status === 200 && dash.text.includes(admin.email) && dash.text.includes("Dashboard"));
   const again = await as("/admin-blog");
-  check("signed in, /admin-blog goes straight to the dashboard", [307, 308].includes(again.status) && (again.headers.get("location") ?? "").endsWith("/admin-blog/dashboard"));
+  check("signed in, /admin-blog goes straight to Manage Customs Wise", [307, 308].includes(again.status) && (again.headers.get("location") ?? "").endsWith("/admin-blog/sites/customs-wise"));
   check("signed in, the site screens open", (await as("/admin-blog/sites/customs-wise")).status === 200 && (await as("/admin-blog/sites/customs-wise/posts/new")).status === 200);
 
   console.log("\nCross-site request forgery");
@@ -103,24 +109,38 @@ try {
   check("a change with no Origin header is refused", noOrigin.status === 403);
   check("nothing was created by those attempts", (await db.collection("posts").countDocuments({ slug: csrfBody.slug })) === 0);
 
-  console.log("\nEditor limited to one website");
+  console.log("\nEditor limited to their websites");
   const ed = await signIn(editor.email, editor.password);
   const asEd = asUser(ed.cookie);
-  check("the editor can open their website", ed.status === 200 && (await asEd("/admin-blog/sites/demo-website")).status === 200);
-  check("the editor cannot open another website's screens", (await asEd("/admin-blog/sites/customs-wise")).status === 404);
-  check("the editor cannot use another website's API", (await asEd("/admin-blog/api/sites/customs-wise/posts")).status === 403 && (await asEd("/admin-blog/api/sites/customs-wise/posts", "POST", csrfBody)).status === 403);
-  check("the editor cannot change authors or website settings", (await asEd("/admin-blog/api/authors", "POST", { name: "x" })).status === 403 && (await asEd("/admin-blog/api/sites/demo-website", "PUT", { name: "x" })).status === 403);
-  check("the editor's dashboard lists only their website", (await asEd("/admin-blog/dashboard")).text.includes("Demo Website") && !(await asEd("/admin-blog/dashboard")).text.includes('data-testid="site-customs-wise"'));
+  check("the editor can open their website", ed.status === 200 && (await asEd("/admin-blog/sites/customs-wise")).status === 200 && (await asEd("/admin-blog/api/sites/customs-wise/posts")).status === 200);
+  check("the editor cannot change authors or website settings", (await asEd("/admin-blog/api/authors", "POST", { name: "x" })).status === 403 && (await asEd("/admin-blog/api/sites/customs-wise", "PUT", { name: "x" })).status === 403);
+  check("the editor's dashboard shows their website", (await asEd("/admin-blog/dashboard")).text.includes('data-testid="site-customs-wise"'));
+  const outLogin = await signIn(outsider.email, outsider.password);
+  const asOut = asUser(outLogin.cookie);
+  check("an editor without Customs Wise cannot open its screens", outLogin.status === 200 && (await asOut("/admin-blog/sites/customs-wise")).status === 404);
+  check("an editor without Customs Wise cannot use its API", (await asOut("/admin-blog/api/sites/customs-wise/posts")).status === 403 && (await asOut("/admin-blog/api/sites/customs-wise/posts", "POST", csrfBody)).status === 403);
+  check("an editor without Customs Wise is sent to the dashboard instead of a missing page", outLogin.data.redirect === "/admin-blog/dashboard" && ((await asOut("/admin-blog")).headers.get("location") ?? "").endsWith("/admin-blog/dashboard"));
+  check("the editor with Customs Wise lands on Manage Customs Wise", ed.data.redirect === "/admin-blog/sites/customs-wise");
+  const outDash = (await asOut("/admin-blog/dashboard")).text;
+  check("that editor's dashboard lists no website", !outDash.includes('data-testid="site-') && outDash.includes("has not been given any websites"));
+
+  console.log("\nThe old demo website is gone from the admin");
+  const adminDash = (await as("/admin-blog/dashboard")).text;
+  check("the dashboard shows Customs Wise only", adminDash.includes('data-testid="site-customs-wise"') && !adminDash.includes('data-testid="site-demo-website"') && !adminDash.includes("Demo Website"));
+  check("its screens are not found, even for an administrator or an editor assigned to it", (await as("/admin-blog/sites/demo-website")).status === 404 && (await as("/admin-blog/sites/demo-website/posts")).status === 404 && (await asOut("/admin-blog/sites/demo-website")).status === 404);
+  check("its admin API is not found", (await as("/admin-blog/api/sites/demo-website/posts")).status === 404 && (await as("/admin-blog/api/sites/demo-website")).status === 404 && (await as("/admin-blog/api/sites/demo-website/posts", "POST", csrfBody)).status === 404);
+  check("its public API is not found", (await request("/api/public/v1/sites/demo-website/posts")).status === 404);
+  check("the website screens offer no other website", !(await as("/admin-blog/sites/customs-wise")).text.includes("Demo Website"));
 
   console.log("\nSessions ending");
   await db.collection("admin_sessions").updateOne({ userId: editor.id }, { $set: { idleExpiresAt: new Date(Date.now() - 1000) } });
-  check("a session idle for more than 2 hours is no longer accepted", (await asEd("/admin-blog/api/sites/demo-website/posts")).status === 401);
+  check("a session idle for more than 2 hours is no longer accepted", (await asEd("/admin-blog/api/sites/customs-wise/posts")).status === 401);
   const ed2 = await signIn(editor.email, editor.password);
   await db.collection("admin_sessions").updateMany({ userId: editor.id }, { $set: { expiresAt: new Date(Date.now() - 1000) } });
-  check("a session older than 12 hours is no longer accepted", (await asUser(ed2.cookie)("/admin-blog/api/sites/demo-website/posts")).status === 401);
+  check("a session older than 12 hours is no longer accepted", (await asUser(ed2.cookie)("/admin-blog/api/sites/customs-wise/posts")).status === 401);
   const ed3 = await signIn(editor.email, editor.password);
   await db.collection("admin_users").updateOne({ _id: editor.id }, { $set: { status: "disabled" } });
-  check("disabling an account ends its sessions at once", (await asUser(ed3.cookie)("/admin-blog/api/sites/demo-website/posts")).status === 401);
+  check("disabling an account ends its sessions at once", (await asUser(ed3.cookie)("/admin-blog/api/sites/customs-wise/posts")).status === 401);
 
   const second = await signIn(admin.email, admin.password);
   const out = await as("/admin-blog/api/auth/logout", "POST");

@@ -1,5 +1,6 @@
 /** Data shapes shared by the admin screens, the API and the public preview. */
 
+/** Website records created before the demo website was removed may still say "demo"; such websites are hidden (cms/server/sites.ts). */
 export type ThemeKey = "customs-wise" | "demo";
 
 /** One website served by the CMS. Every piece of content belongs to exactly one site. */

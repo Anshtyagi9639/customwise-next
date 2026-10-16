@@ -61,7 +61,7 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
   if (!post) {
     // While the CMS cannot be read, an article that exists only there must not be replaced by a 404:
     // failing here keeps the last good version of the page (see blog-source.ts).
-    if (blog.origin === "built-in-fallback") throw new Error("The blog source is temporarily unavailable.");
+    if (blog.origin === "cms-unavailable") throw new Error("The blog source is temporarily unavailable.");
     notFound();
   }
   const path = postPath(post);

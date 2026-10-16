@@ -17,6 +17,8 @@ npm run dev                  # http://localhost:3000
 | `npm run typecheck` | Type check (works on a fresh clone, before any build) |
 | `npm run build` | Production build |
 | `npm start` | Serve the production build |
+| `npm run cms:admin -- <command>` | Blog admin accounts: create the first admin, reset a password (see `cms/README.md`) |
+| `npm run cms:admin-env -- --email <you>` | The administrator from the server settings: writes `ADMIN_EMAIL` / `ADMIN_PASSWORD_HASH` to `.env` (`--print` for the hosting panel) |
 
 Requires Node.js 20.9 or later.
 
@@ -30,6 +32,11 @@ Requires Node.js 20.9 or later.
 | `EMAIL_FROM` | **Yes, for the enquiry form** | Verified sender, e.g. `Customs Wise Website <enquiries@customswise.ie>`. |
 | `EMAIL_API_URL` | Optional | Overrides the Resend endpoint (used for testing). |
 | `ENQUIRY_WEBHOOK_URL` / `ENQUIRY_WEBHOOK_SECRET` | Optional | Also posts a JSON copy of each enquiry to a CRM or automation tool. |
+| `MONGODB_URI` | **Yes, for the blog admin** | MongoDB Atlas connection string. Server-side only. |
+| `MONGODB_DB` | **Yes, for the blog admin** | `blog_cms` |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD_HASH` | Optional | The blog administrator, made with `npm run cms:admin-env`. Never the password itself. See `cms/README.md`. |
+| `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` | **Yes, for image uploads in the blog admin** | From Cloudinary, Settings > API Keys. Server-side only. |
+| `BLOG_SOURCE` | Optional | `static` (default): the blog shows the articles in `lib/content/blog-posts.ts`. `cms`: articles published in the blog admin. |
 
 ### Setting up enquiry emails (Resend)
 
@@ -41,13 +48,17 @@ Requires Node.js 20.9 or later.
 
 The visitor only sees the success message once Resend has accepted the email. If sending fails or email isn't configured, they see "We couldn't send your enquiry right now. Please try again or contact us directly." and the server log states exactly what failed or which variable is missing.
 
+## Blog admin (/admin-blog)
+
+The blog CMS is part of this website: same repository, same build, same Node.js app. Sign in at `/admin-blog`; the dashboard is `/admin-blog/dashboard`; `/admin-blog/api/health` answers 200 only when the CMS database can be read. Accounts are stored in MongoDB (`admin_users`, passwords hashed); there is no sign-up page. Setup, the first admin account, password recovery, security and tests are in **[cms/README.md](cms/README.md)**.
+
 ## Site features
 
 - **Header scroll behaviour:** hides when scrolling down (slides out with `translateY(-100%)`), reappears when scrolling up, and is always visible at the top of the page. It never hides while the mobile menu is open. No background or shadow is added. One passive, frame-throttled scroll listener in `components/navigation/navbar.tsx`. **Readability option:** the header is transparent with white text, so when it reappears mid-page over light sections its text has low contrast. Set `SOLID_WHEN_REVEALED_MID_PAGE = true` in that file to give it the brand Overnight background only when shown below the top (off by default, per the approved spec).
 - **Header:** Home, About, Services, Food Customs, Industries, Insights, then **Call Us** (`tel:` link to the verified number; full button from 1280px, compact icon at 1024–1279px and on mobile) and **Get an Enquiry** (`/contact#enquiry`).
 - **Footer:** official brand icons for X, YouTube, Facebook and LinkedIn (`components/icons/social-icons.tsx`), URLs in `lib/site.ts` (`site.social`).
 - **Quick contact button** (`components/layout/quick-contact.tsx`): fixed bottom-right, opens a panel with Get an Enquiry, Call Us, Email Us and Contact Us. It fades out of the way whenever a button, link or form field sits underneath it, and is always shown when keyboard-focused.
-- **Blog:** add real posts to `lib/content/blog.ts` (instructions at the top of that file). Each post gets its own page at `/insights/blog/<slug>` and appears automatically on the homepage "Blog & Insights" section, the Insights page ("Blog" category) and the sitemap. Nothing blog-specific is shown until a post exists.
+- **Blog:** with `BLOG_SOURCE=static` (default), add real posts to `lib/content/blog-posts.ts` (instructions in `lib/content/blog.ts`); with `BLOG_SOURCE=cms`, publish them in the blog admin instead. Each post gets its own page at `/insights/blog/<slug>` and appears automatically on the homepage "Blog & Insights" section, the Insights page ("Blog" category) and the sitemap. Nothing blog-specific is shown until a post exists.
 - **Insights:** articles are grouped by category (`insightCategories` in `lib/content/index.ts`). To publish an article, add its page under `app/` and an entry to the relevant list.
 - **Motion:** subtle trade-route background (pure SVG/CSS), short page entrance (`app/template.tsx`), scroll reveals (`components/layout/reveal-observer.tsx`). All static with `prefers-reduced-motion`; content is fully visible without JavaScript.
 
@@ -63,6 +74,11 @@ The visitor only sees the success message once Resend has accepted the email. If
 
 ```
 app/                  Routes (App Router), metadata files (sitemap, robots, manifest, icons), fonts
+  admin-blog/         Blog admin: sign-in, dashboard, editor screens, and its API (admin-blog/api/)
+  api/public/         Read-only blog API (published articles only)
+cms/                  Blog CMS: records, sign-in and sessions (server/), editor components, shared types (see cms/README.md)
+proxy.ts              Early sign-in redirect and security headers for /admin-blog; 404 for unknown article addresses
+scripts/cms/          Admin account tool, image re-link, CMS tests
 components/
   content/            Long-form guides (POAO, CATCH, fresh produce, CBAM, EUDR, Incoterms)
   footer/ navigation/ Site chrome

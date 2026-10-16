@@ -2,6 +2,7 @@ import { requireAdminPage } from "@/cms/server/auth/guard";
 import { notFound } from "next/navigation";
 import { CategoriesManager } from "@/cms/components/admin/managers";
 import { readDb } from "@/cms/server/store";
+import { findSite } from "@/cms/server/sites";
 
 export const metadata = { title: "Categories" };
 
@@ -9,7 +10,7 @@ export default async function CategoriesPage({ params }: { params: Promise<{ sit
   const { site: key } = await params;
   await requireAdminPage({ siteKey: key });
   const db = await readDb();
-  const site = db.sites.find((s) => s.key === key);
+  const site = findSite(db, key);
   if (!site) notFound();
   const categories = db.categories.filter((c) => c.siteId === site.id).sort((a, b) => a.order - b.order);
   const counts: Record<string, number> = {};

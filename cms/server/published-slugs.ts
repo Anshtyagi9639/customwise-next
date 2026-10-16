@@ -1,6 +1,7 @@
 import "server-only";
 import { isVisible } from "@/cms/lib/content";
 import { readDb } from "./store";
+import { findSite } from "./sites";
 
 /**
  * The slugs of a website's public articles, kept for 30 seconds. Used by proxy.ts so that an address under
@@ -27,7 +28,7 @@ export async function publishedSlugs(siteKey: string): Promise<Set<string> | nul
   try {
     // Never hold a visitor's request for long: after 2 seconds the last list is used instead.
     const db = await Promise.race([readDb(), new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timed out")), READ_TIMEOUT_MS))]);
-    const site = db.sites.find((s) => s.key === siteKey);
+    const site = findSite(db, siteKey);
     if (!site) return hit?.slugs ?? null;
     const now = Date.now();
     const slugs = new Set(db.posts.filter((p) => p.siteId === site.id && isVisible(p, now)).map((p) => p.slug));
@@ -42,4 +43,20 @@ export async function publishedSlugs(siteKey: string): Promise<Set<string> | nul
 /** Called after a publish or unpublish: the next request reads the list again (the old one stays as the fallback). */
 export function forgetPublishedSlugs() {
   for (const entry of g[KEY]?.values() ?? []) entry.at = 0;
+}
+
+/**
+ * next dev only (diagnostics for proxy.ts): why an address under the article path is not public. Reads the database
+ * once; returns null if it cannot be read. Never used in production, so made-up addresses cannot cause extra reads.
+ */
+export async function unpublishedReason(siteKey: string, slug: string): Promise<"draft" | "scheduled" | "not-in-cms" | null> {
+  try {
+    const db = await readDb();
+    const site = findSite(db, siteKey);
+    const post = site && db.posts.find((p) => p.siteId === site.id && p.slug === slug);
+    if (!post) return "not-in-cms";
+    return post.status === "draft" ? "draft" : "scheduled";
+  } catch {
+    return null;
+  }
 }

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { SLUG_PATTERN, canonicalUrl, cleanBlocks, isSafeHref, isVisible, pickRelated, slugify, toCard, toPublicPost } from "@/cms/lib/content";
 import type { FieldErrors, ImageRef, Post, PostInput, PublicCard, PublicPost, Site } from "@/cms/lib/types";
 import { type Database, StoreConflictError, audit, mutateDb, newId, readDb } from "./store";
+import { findSite } from "./sites";
 
 /**
  * Article rules: validation, slugs, publishing, copying, and what the public may see.
@@ -219,7 +220,7 @@ export function deletePost(site: Site, id: string): Promise<{ ok: boolean; messa
 export function copyPost(site: Site, id: string, targetKey: string, canonicalToOriginal: boolean): Promise<SaveResult & { targetSiteKey?: string }> {
   return mutateDb((db): SaveResult & { targetSiteKey?: string } => {
     const source = db.posts.find((p) => p.id === id && p.siteId === site.id);
-    const target = db.sites.find((s) => s.key === targetKey);
+    const target = findSite(db, targetKey);
     if (!source || !target) return { ok: false, status: 404, message: "The article or the target website was not found.", fieldErrors: {} };
     if (target.id === site.id) return { ok: false, status: 400, message: "Choose a different website to copy to.", fieldErrors: {} };
 

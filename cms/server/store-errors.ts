@@ -11,9 +11,16 @@ export class StoreConflictError extends Error {
   }
 }
 
-/** The database is not configured or could not be reached. */
+/**
+ * The database is not configured or could not be reached. `reason` is safe to show publicly (the health check reports
+ * it): "not-configured" means MONGODB_URI or MONGODB_DB is missing or invalid on the server; "unreachable" means the
+ * settings look right but connecting or reading failed (network access, credentials, the database server).
+ */
 export class StoreUnavailableError extends Error {
-  constructor(message = "The content database could not be reached.") {
+  constructor(
+    message = "The content database could not be reached.",
+    public readonly reason: "not-configured" | "unreachable" = "unreachable",
+  ) {
     super(message);
     this.name = "StoreUnavailableError";
   }

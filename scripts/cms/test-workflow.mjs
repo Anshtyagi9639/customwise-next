@@ -17,7 +17,7 @@ const args = process.argv.slice(2);
 const keep = args.includes("--keep");
 const verifyFile = args.includes("--verify") ? args[args.indexOf("--verify") + 1] : null;
 const CW = "customs-wise";
-const DEMO = "demo-website";
+const HIDDEN = "demo-website"; // the old demo website: still in older databases, hidden from the CMS
 
 const { client: mongo, db } = await openDb();
 const tester = await createTestUser(db, { role: "admin" });
@@ -95,7 +95,10 @@ const slug = `workflow-test-${stamp}`;
 const created = []; // [siteKey, postId] to remove at the end
 
 const cw = (await call(`/admin-blog/api/sites/${CW}`)).data;
-const demo = (await call(`/admin-blog/api/sites/${DEMO}`)).data;
+// Records of the hidden website, read from the database (only present in databases created before it was removed).
+const hiddenSite = await db.collection("sites").findOne({ key: HIDDEN });
+const hiddenCategory = hiddenSite ? await db.collection("categories").findOne({ siteId: hiddenSite._id }) : null;
+const hiddenPost = hiddenSite ? await db.collection("posts").findOne({ siteId: hiddenSite._id }) : null;
 const base = {
   title: `Workflow test article ${stamp}`,
   slug,
@@ -152,10 +155,12 @@ const thinErrors = thin.data.fieldErrors ?? {};
 check("publishing without summary, content, category and author is refused", thin.status === 400 && ["summary", "body", "categoryId", "authorId"].every((k) => thinErrors[k]), JSON.stringify(thinErrors));
 const noAlt = await call(`/admin-blog/api/sites/${CW}/posts`, "POST", { ...base, slug: `${slug}-alt`, status: "published", coverImage: { mediaId: media.id, url: media.url, alt: "", caption: "", width: media.width, height: media.height } });
 check("publishing with an image but no alt text is refused", noAlt.status === 400 && !!noAlt.data.fieldErrors?.coverImageAlt);
-const foreignCategory = await call(`/admin-blog/api/sites/${CW}/posts`, "POST", { ...base, slug: `${slug}-cat`, categoryId: demo.categories[0].id });
-check("another website's category is refused", foreignCategory.status === 400 && !!foreignCategory.data.fieldErrors?.categoryId);
-const foreignImage = await call(`/admin-blog/api/sites/${DEMO}/posts`, "POST", { ...base, slug: `${slug}-img`, categoryId: demo.categories[0].id, authorId: demo.authors[0].id, coverImage: { mediaId: media.id, url: media.url, alt: "x", caption: "", width: 1200, height: 630 } });
-check("another website's image is refused", foreignImage.status === 400 && !!foreignImage.data.fieldErrors?.coverImage);
+if (hiddenCategory) {
+  const foreignCategory = await call(`/admin-blog/api/sites/${CW}/posts`, "POST", { ...base, slug: `${slug}-cat`, categoryId: hiddenCategory._id });
+  check("a category of another (hidden) website is refused", foreignCategory.status === 400 && !!foreignCategory.data.fieldErrors?.categoryId);
+}
+const hiddenCreate = await call(`/admin-blog/api/sites/${HIDDEN}/posts`, "POST", { ...base, slug: `${slug}-img` });
+check("nothing can be created on the hidden website", hiddenCreate.status === 404 && (await db.collection("posts").countDocuments({ slug: `${slug}-img` })) === 0, `status ${hiddenCreate.status}`);
 
 console.log("\nDraft, publish, edit, unpublish, republish");
 const cover = { mediaId: media.id, url: media.url, alt: "Blue test gradient", caption: "Test image", width: media.width, height: media.height };
@@ -214,40 +219,34 @@ created.push([CW, scheduled.data.post?.id]);
 check("an article with a future publish time is saved", scheduled.status === 201);
 check("it is not public before that time", !(await listHas(CW, `${slug}-later`)) && (await call(`/api/public/v1/sites/${CW}/posts/${slug}-later`)).status === 404);
 
-console.log("\nSlugs and isolation between websites");
+console.log("\nSlugs, and the hidden demo website");
 const duplicate = await call(`/admin-blog/api/sites/${CW}/posts`, "POST", { ...base, title: "Duplicate" });
 check("the same slug on the same website is refused", duplicate.status === 409 && !!duplicate.data.fieldErrors?.slug, `status ${duplicate.status}`);
-const demoPost = await call(`/admin-blog/api/sites/${DEMO}/posts`, "POST", { ...base, title: `Demo ${stamp}`, status: "published", categoryId: demo.categories[0].id, authorId: demo.authors[0].id });
-check("the same slug on the other website is allowed", demoPost.status === 201, `status ${demoPost.status} ${JSON.stringify(demoPost.data.fieldErrors ?? {})}`);
-const demoId = demoPost.data.post?.id;
-created.push([DEMO, demoId]);
-const cwView = (await call(`/api/public/v1/sites/${CW}/posts/${slug}`)).data.post;
-const demoView = (await call(`/api/public/v1/sites/${DEMO}/posts/${slug}`)).data.post;
-check("each website returns its own article for that slug", cwView.id === id && demoView.id === demoId && cwView.title !== demoView.title);
-check("the demo article's canonical uses the demo website", demoView.canonicalUrl === `https://demo-website.example/journal/${slug}`, demoView.canonicalUrl);
 const cwAdmin = (await call(`/admin-blog/api/sites/${CW}/posts`)).data.posts;
-const demoAdmin = (await call(`/admin-blog/api/sites/${DEMO}/posts`)).data.posts;
-check("the Customs Wise dashboard list has no demo articles", cwAdmin.every((x) => x.siteId === cw.site.id) && !cwAdmin.some((x) => x.id === demoId));
-check("the demo dashboard list has no Customs Wise articles", demoAdmin.every((x) => x.siteId === demo.site.id) && !demoAdmin.some((x) => x.id === id));
+check("the Customs Wise list has only Customs Wise articles", cwAdmin.every((x) => x.siteId === cw.site.id));
 const cwPublic = (await call(`/api/public/v1/sites/${CW}/posts?limit=50`)).data.posts;
-const demoPublic = (await call(`/api/public/v1/sites/${DEMO}/posts?limit=50`)).data.posts;
-check("the public lists do not overlap", !cwPublic.some((x) => demoPublic.some((y) => y.id === x.id)));
-check("an article cannot be read through the other website", (await call(`/admin-blog/api/sites/${DEMO}/posts/${id}`)).status === 404 && (await call(`/admin-blog/api/sites/${CW}/posts/${demoId}`)).status === 404);
-check("an article cannot be edited through the other website", (await call(`/admin-blog/api/sites/${DEMO}/posts/${id}`, "PUT", { ...base, title: "Hijacked" })).status === 404);
-check("an article cannot be unpublished through the other website", (await call(`/admin-blog/api/sites/${DEMO}/posts/${id}/unpublish`, "POST")).status === 404);
-check("an article cannot be previewed through the other website", (await call(`/admin-blog/preview/${DEMO}/${id}`)).status === 404);
-if (websitePages) check("the Customs Wise website never shows the demo article", !(await call("/blog")).data.includes(`Demo ${stamp}`) && (await call(`/insights/blog/${slug}`)).data.includes(`${base.title} (edited)`));
+check("the public Customs Wise list has no article of another website", cwPublic.every((x) => !hiddenPost || x.id !== hiddenPost._id));
+check("the hidden website's admin API is not found", (await call(`/admin-blog/api/sites/${HIDDEN}`)).status === 404 && (await call(`/admin-blog/api/sites/${HIDDEN}/posts`)).status === 404);
+check("the hidden website's public API is not found", (await call(`/api/public/v1/sites/${HIDDEN}/posts`)).status === 404 && (await call(`/api/public/v1/sites/${HIDDEN}/categories`)).status === 404);
+check("a Customs Wise article cannot be read, edited, unpublished or previewed through the hidden website",
+  (await call(`/admin-blog/api/sites/${HIDDEN}/posts/${id}`)).status === 404 &&
+  (await call(`/admin-blog/api/sites/${HIDDEN}/posts/${id}`, "PUT", { ...base, title: "Hijacked" })).status === 404 &&
+  (await call(`/admin-blog/api/sites/${HIDDEN}/posts/${id}/unpublish`, "POST")).status === 404 &&
+  (await call(`/admin-blog/preview/${HIDDEN}/${id}`)).status === 404);
+if (hiddenPost) {
+  check("an article of the hidden website cannot be read or changed through Customs Wise",
+    (await call(`/admin-blog/api/sites/${CW}/posts/${hiddenPost._id}`)).status === 404 &&
+    (await call(`/admin-blog/api/sites/${CW}/posts/${hiddenPost._id}/unpublish`, "POST")).status === 404 &&
+    (await call(`/api/public/v1/sites/${CW}/posts/${hiddenPost.slug}`)).status === 404);
+  check("the hidden website's article is unchanged", JSON.stringify(await db.collection("posts").findOne({ _id: hiddenPost._id })) === JSON.stringify(hiddenPost));
+}
 check("an unknown website returns 404", (await call(`/api/public/v1/sites/nope/posts`)).status === 404);
 
 console.log("\nCopy to another website");
-const copy = await call(`/admin-blog/api/sites/${CW}/posts/${id}/copy`, "POST", { targetSiteKey: DEMO, canonicalToOriginal: true });
-const copied = copy.data.post;
-created.push([DEMO, copied?.id]);
-check("the copy is a new draft on the other website", copy.status === 201 && copied.id !== id && copied.siteId === demo.site.id && copied.status === "draft");
-check("the copy gets a free slug on that website", copied?.slug === `${slug}-2`, copied?.slug);
-check("the copy's canonical points at the original", copied?.canonicalOverride === `https://www.customswise.ie/insights/blog/${slug}`);
-await call(`/admin-blog/api/sites/${DEMO}/posts/${copied.id}`, "PUT", { ...copied, title: "Changed copy" });
-check("changing the copy leaves the original untouched", (await call(`/admin-blog/api/sites/${CW}/posts/${id}`)).data.post.title !== "Changed copy");
+const copy = await call(`/admin-blog/api/sites/${CW}/posts/${id}/copy`, "POST", { targetSiteKey: HIDDEN, canonicalToOriginal: true });
+check("an article cannot be copied to the hidden website", copy.status === 404 && (await db.collection("posts").countDocuments({ slug: `${slug}-2` })) === 0, `status ${copy.status}`);
+const editorScreen = (await call(`/admin-blog/sites/${CW}/posts`)).data;
+check("the article list offers no other website to copy to", typeof editorScreen === "string" && !editorScreen.includes("Demo Website") && !editorScreen.includes("Copy to"));
 
 console.log("\nRequests from other websites");
 const cross = await call(`/admin-blog/api/sites/${CW}/posts/${id}/unpublish`, "POST", undefined, { Origin: "https://evil.example" });
@@ -263,7 +262,7 @@ if (keep) {
     await call(`/admin-blog/api/sites/${site}/posts/${postId}/unpublish`, "POST");
     await call(`/admin-blog/api/sites/${site}/posts/${postId}`, "DELETE");
   }
-  check("the test articles are removed again", !(await listHas(CW, slug)) && !(await listHas(DEMO, slug)));
+  check("the test articles are removed again", !(await listHas(CW, slug)));
 }
 
 await cleanupAccounts();

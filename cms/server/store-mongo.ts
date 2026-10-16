@@ -3,6 +3,7 @@ import { type AnyBulkWriteOperation, type Db, MongoClient } from "mongodb";
 import { seedDatabase } from "./seed";
 import type { Database } from "./store";
 import { StoreConflictError, StoreUnavailableError } from "./store-errors";
+import { mongoFailure } from "./mongo-failure";
 
 /**
  * MongoDB store (MongoDB Atlas in production use; any MongoDB server for testing).
@@ -50,7 +51,7 @@ function notConfigured(reason: string): never {
     lastConfigLog = Date.now();
     console.error(`[store] MongoDB is not configured on this server: ${reason}`);
   }
-  throw new StoreUnavailableError(`The CMS database is not configured: ${reason}`);
+  throw new StoreUnavailableError(`The CMS database is not configured: ${reason}`, "not-configured");
 }
 
 function config(): { uri: string; name: string } {
@@ -63,11 +64,11 @@ function config(): { uri: string; name: string } {
   return { uri, name };
 }
 
-/** Logs what kind of failure happened and nothing else: driver messages can contain host names. */
+/** Logs what kind of failure happened and what to do, and nothing else: driver messages can contain host names. */
 function unavailable(err: unknown, during: string): StoreUnavailableError {
   if (err instanceof StoreUnavailableError) return err;
-  const e = err as { name?: unknown; code?: unknown; codeName?: unknown };
-  console.error(`[store] MongoDB ${during} failed: ${String(e?.name ?? "Error")}${e?.code !== undefined ? ` code=${String(e.code)}` : ""}${e?.codeName ? ` (${String(e.codeName)})` : ""}`);
+  const f = mongoFailure(err);
+  console.error(`[store] MongoDB ${during} failed (${f.kind}): ${f.advice}. [${f.summary}]`);
   return new StoreUnavailableError();
 }
 

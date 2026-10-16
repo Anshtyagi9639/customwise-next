@@ -1,6 +1,7 @@
 import "server-only";
 import { createHash, randomBytes } from "node:crypto";
-import { SESSION_ABSOLUTE_MS, SESSION_COOKIE, SESSION_COOKIE_PATH, SESSION_IDLE_MS } from "@/cms/lib/auth-shared";
+import { SESSION_ABSOLUTE_MS, SESSION_COOKIE, SESSION_COOKIE_PATH, SESSION_COOKIE_SECURE, SESSION_IDLE_MS } from "@/cms/lib/auth-shared";
+import { endEnvSession, isEnvSessionToken, readEnvSession } from "./env-sessions";
 import { type AdminUser, authDb, authUnavailable, toAdminUser, usersCollection } from "./users";
 
 /**
@@ -8,6 +9,7 @@ import { type AdminUser, authDb, authUnavailable, toAdminUser, usersCollection }
  * The browser holds only a random token; the database stores its SHA-256 hash, so a copy of the database cannot be
  * used to sign in. A session ends after 2 hours without activity or 12 hours after sign-in, on sign-out, when the
  * account is disabled, and when its password changes. Expired sessions are removed by a TTL index.
+ * Sessions of the administrator from the server settings are kept apart, without the database (env-sessions.ts).
  */
 
 type SessionDoc = { _id: string; userId: string; createdAt: Date; lastSeenAt: Date; idleExpiresAt: Date; expiresAt: Date; ip: string; userAgent: string };
@@ -42,6 +44,7 @@ export async function createSession(user: AdminUser, meta: { ip: string; userAge
 
 /** The signed-in user for a session token, or null. Also extends the idle timeout while the user is active. */
 export async function readSession(token: string | undefined): Promise<{ sessionId: string; user: AdminUser } | null> {
+  if (isEnvSessionToken(token)) return readEnvSession(token);
   if (!token || !TOKEN_PATTERN.test(token)) return null;
   const id = hashToken(token);
   try {
@@ -69,6 +72,7 @@ export async function readSession(token: string | undefined): Promise<{ sessionI
 }
 
 export async function endSession(token: string | undefined): Promise<void> {
+  if (isEnvSessionToken(token)) return endEnvSession(token);
   if (!token || !TOKEN_PATTERN.test(token)) return;
   try {
     await (await sessions()).deleteOne({ _id: hashToken(token) });
@@ -87,11 +91,11 @@ export async function endAllSessions(userId: string, keepSessionId?: string): Pr
   }
 }
 
-/** Cookie settings: HttpOnly (no JavaScript access), Secure (HTTPS only), SameSite=Strict, admin paths only. */
+/** Cookie settings: HttpOnly (no JavaScript access), Secure (HTTPS only; see auth-shared.ts for next dev), SameSite=Strict, admin paths only. */
 export function sessionCookie(token: string) {
-  return { name: SESSION_COOKIE, value: token, httpOnly: true, secure: true, sameSite: "strict" as const, path: SESSION_COOKIE_PATH, maxAge: Math.floor(SESSION_ABSOLUTE_MS / 1000) };
+  return { name: SESSION_COOKIE, value: token, httpOnly: true, secure: SESSION_COOKIE_SECURE, sameSite: "strict" as const, path: SESSION_COOKIE_PATH, maxAge: Math.floor(SESSION_ABSOLUTE_MS / 1000) };
 }
 
 export function clearedSessionCookie() {
-  return { name: SESSION_COOKIE, value: "", httpOnly: true, secure: true, sameSite: "strict" as const, path: SESSION_COOKIE_PATH, maxAge: 0 };
+  return { name: SESSION_COOKIE, value: "", httpOnly: true, secure: SESSION_COOKIE_SECURE, sameSite: "strict" as const, path: SESSION_COOKIE_PATH, maxAge: 0 };
 }

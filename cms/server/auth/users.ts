@@ -3,6 +3,7 @@ import type { Db } from "mongodb";
 import { storeKind } from "../store";
 import { StoreUnavailableError } from "../store-errors";
 import { database } from "../store-mongo";
+import { mongoFailure } from "../mongo-failure";
 
 /**
  * Administrator accounts, kept in the MongoDB collection "admin_users".
@@ -19,7 +20,9 @@ export type AdminUserDoc = {
   /** "admin": every website, authors and settings. "editor": articles and categories of the listed websites. */
   role: AdminRole;
   siteKeys: string[];
-  status: "active" | "disabled";
+  /** "invited": created by an administrator, waiting for its owner to choose a password with the setup link. */
+  status: "active" | "disabled" | "invited";
+  /** Empty until the owner has set a password. */
   passwordHash: string;
   passwordChangedAt: Date;
   createdAt: Date;
@@ -39,11 +42,11 @@ export function canAccessSite(user: Pick<AdminUser, "role" | "siteKeys">, siteKe
 const KEY = Symbol.for("cms.auth.indexes");
 const g = globalThis as typeof globalThis & { [KEY]?: Promise<void> };
 
-/** Logs only the kind of failure: driver messages can contain server addresses. */
+/** Logs only the kind of failure and what to do: driver messages can contain server addresses. */
 export function authUnavailable(err: unknown): StoreUnavailableError {
   if (err instanceof StoreUnavailableError) return err;
-  const e = err as { name?: unknown; code?: unknown };
-  console.error(`[auth] database request failed: ${String(e?.name ?? "Error")}${e?.code !== undefined ? ` code=${String(e.code)}` : ""}`);
+  const f = mongoFailure(err);
+  console.error(`[auth] database request failed (${f.kind}): ${f.advice}. [${f.summary}]`);
   return new StoreUnavailableError();
 }
 
@@ -57,6 +60,8 @@ export async function authDb(): Promise<Db> {
       await db.collection("admin_sessions").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0, name: "expires_ttl" });
       await db.collection("admin_sessions").createIndex({ userId: 1 }, { name: "user" });
       await db.collection("admin_login_throttle").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0, name: "expires_ttl" });
+      await db.collection("admin_setup_tokens").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0, name: "expires_ttl" });
+      await db.collection("admin_setup_tokens").createIndex({ userId: 1 }, { name: "user" });
     })();
     g[KEY] = attempt;
     attempt.catch(() => {

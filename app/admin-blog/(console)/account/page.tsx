@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { ChangePasswordForm } from "@/cms/components/auth/change-password-form";
+import { DEV_ADMIN_ID } from "@/cms/server/auth/dev-access";
+import { isEnvAdminEmail } from "@/cms/server/auth/env-admin";
 import { requireAdminPage } from "@/cms/server/auth/guard";
 
 export const metadata: Metadata = { title: "Account" };
@@ -24,7 +26,16 @@ export default async function AccountPage() {
         <h2 id="h-password" className="section-title">
           Change password
         </h2>
-        <ChangePasswordForm />
+        {user.id === DEV_ADMIN_ID ? (
+          <p className="text-[0.92rem] text-ink-soft">Local development access has no account or password. Sign in normally to change a password.</p>
+        ) : isEnvAdminEmail(user.email) ? (
+          <p className="text-[0.92rem] text-ink-soft" data-testid="password-from-settings">
+            Your password is set in the server settings (<code>ADMIN_PASSWORD_HASH</code>), not here. To change it, run <code>npm run cms:admin-env</code> and update the
+            setting where the website runs.
+          </p>
+        ) : (
+          <ChangePasswordForm />
+        )}
       </section>
     </div>
   );

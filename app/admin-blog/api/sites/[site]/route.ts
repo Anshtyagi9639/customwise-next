@@ -3,6 +3,7 @@ import { json, notFound, readJson } from "@/cms/server/http";
 import { refreshPublicBlog } from "@/cms/server/revalidate";
 import { readDb } from "@/cms/server/store";
 import { saveSettings } from "@/cms/server/taxonomy";
+import { findSite } from "@/cms/server/sites";
 
 type Ctx = { params: Promise<{ site: string }> };
 
@@ -11,7 +12,7 @@ export async function GET(request: Request, ctx: Ctx) {
   const { site: key } = await ctx.params;
   return withAdmin(request, { siteKey: key }, async () => {
     const db = await readDb();
-    const site = db.sites.find((s) => s.key === key);
+    const site = findSite(db, key);
     if (!site) return notFound("Website not found.");
     return json({
       site,
@@ -25,7 +26,7 @@ export async function GET(request: Request, ctx: Ctx) {
 export async function PUT(request: Request, ctx: Ctx) {
   const { site: key } = await ctx.params;
   return withAdmin(request, { siteKey: key, role: "admin" }, async () => {
-    const site = (await readDb()).sites.find((s) => s.key === key);
+    const site = findSite(await readDb(), key);
     if (!site) return notFound("Website not found.");
     const result = await saveSettings(site, await readJson(request));
     if (!result.ok) return json({ error: "invalid", message: result.message, fieldErrors: result.fieldErrors }, result.status);

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { SIGN_IN_LOCKED } from "@/cms/lib/auth-shared";
+import { isEnvAdminEmail } from "@/cms/server/auth/env-admin";
 import { withAdmin } from "@/cms/server/auth/guard";
 import { hashPassword, passwordProblem, verifyPassword } from "@/cms/server/auth/password";
 import { clientIp } from "@/cms/server/auth/request";
@@ -15,6 +16,7 @@ const input = z.object({ currentPassword: z.string().min(1).max(1000), newPasswo
 /** Change your own password. Every other session of the account is signed out; this one gets a fresh session. */
 export async function POST(request: Request) {
   return withAdmin(request, {}, async (user) => {
+    if (isEnvAdminEmail(user.email)) return json({ error: "invalid", message: "This administrator's password is set in the server settings (ADMIN_PASSWORD_HASH). Change it there with npm run cms:admin-env.", fieldErrors: {} }, 409);
     const parsed = input.safeParse(await request.json().catch(() => null));
     if (!parsed.success) return json({ error: "invalid", message: "Enter your current password and a new password.", fieldErrors: {} }, 400);
     const { currentPassword, newPassword } = parsed.data;
