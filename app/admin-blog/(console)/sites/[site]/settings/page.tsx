@@ -1,7 +1,7 @@
 import { requireAdminPage } from "@/cms/server/auth/guard";
 import { notFound } from "next/navigation";
 import { SettingsForm } from "@/cms/components/admin/managers";
-import { readDb } from "@/cms/server/store";
+import { readDbForScreen } from "@/cms/server/admin-data";
 import { findSite } from "@/cms/server/sites";
 
 export const metadata = { title: "Website Settings" };
@@ -9,7 +9,7 @@ export const metadata = { title: "Website Settings" };
 export default async function SettingsPage({ params }: { params: Promise<{ site: string }> }) {
   const { site: key } = await params;
   await requireAdminPage({ siteKey: key, role: "admin" });
-  const db = await readDb();
+  const db = await readDbForScreen("settings");
   const site = findSite(db, key);
   if (!site) notFound();
   const api = `/api/public/v1/sites/${site.key}`;

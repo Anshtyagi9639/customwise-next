@@ -2,7 +2,7 @@ import { requireAdminPage } from "@/cms/server/auth/guard";
 import { notFound } from "next/navigation";
 import { PostEditor } from "@/cms/components/admin/post-editor";
 import type { Post, PostInput } from "@/cms/lib/types";
-import { readDb } from "@/cms/server/store";
+import { readDbForScreen } from "@/cms/server/admin-data";
 import { findSite } from "@/cms/server/sites";
 
 export const metadata = { title: "Edit Post" };
@@ -21,7 +21,7 @@ export default async function EditPost({ params, searchParams }: { params: Promi
   const { site: key, id } = await params;
   await requireAdminPage({ siteKey: key });
   const { notice } = await searchParams;
-  const db = await readDb();
+  const db = await readDbForScreen("post-edit");
   const site = findSite(db, key);
   // An article is only reachable through the website it belongs to.
   const post = site && db.posts.find((p) => p.id === id && p.siteId === site.id);

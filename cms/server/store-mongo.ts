@@ -5,7 +5,7 @@ import type { Database } from "./store";
 import { StoreConflictError, StoreUnavailableError } from "./store-errors";
 import { debugEvent, elapsed, logEvent } from "./log";
 import { checkDocs } from "./doc-check";
-import { describeMongoUri, mongoFailure } from "./mongo-failure";
+import { describeMongoUri, driverErrorCode, mongoFailure, sanitizedDriverMessage, screenCategory } from "./mongo-failure";
 
 /**
  * MongoDB store (MongoDB Atlas in production use; any MongoDB server for testing).
@@ -70,11 +70,26 @@ function config(): { uri: string; name: string } {
 const EXPECTED_DB = "blog_cms";
 
 /** Logs what kind of failure happened and what to do, and nothing else: driver messages can contain host names. */
-function unavailable(err: unknown, during: string, ms?: number, collection?: string): StoreUnavailableError {
+function unavailable(err: unknown, during: string, ms?: number, collection?: string, attempt?: number): StoreUnavailableError {
   if (err instanceof StoreUnavailableError) return err;
   const f = mongoFailure(err, during);
   if (shouldLogFailure(`${during}:${f.kind}`)) {
-    logEvent("CMS_DB", during === "connection" ? "connection_failed" : "query_failed", { outcome: "failure", ms, code: f.kind, during, db: dbName(), collection, error: f.summary, suppressed: takeSuppressed(), msg: `MongoDB ${during} failed (${f.kind}): ${f.advice}.` });
+    logEvent("CMS_DB", during === "connection" ? "connection_failed" : "query_failed", {
+      outcome: "failure",
+      ms,
+      code: f.kind,
+      category: screenCategory(f.kind),
+      during,
+      connection_attempt: attempt,
+      db: dbName(),
+      collection,
+      error: f.summary,
+      error_name: String((err as { name?: unknown })?.name ?? "Error"),
+      error_code: driverErrorCode(err),
+      error_message: sanitizedDriverMessage(err),
+      suppressed: takeSuppressed(),
+      msg: `MongoDB ${during} failed (${f.kind}): ${f.advice}.`,
+    });
   }
   return new StoreUnavailableError(undefined, "unreachable", f.kind);
 }
@@ -108,23 +123,37 @@ const dbName = () => setting("MONGODB_DB") || undefined;
 const KEY = Symbol.for("cms.store.mongodb");
 const g = globalThis as typeof globalThis & { [KEY]?: Promise<Db> };
 
+/** How many times this process has tried to connect (a failed connection is tried again by the next request). */
+let connectionAttempts = 0;
+
 async function open(): Promise<Db> {
   const { uri, name } = config();
+  const attempt = ++connectionAttempts;
   const client = new MongoClient(uri, { appName: "multi-site-blog-cms", maxPoolSize: 10, serverSelectionTimeoutMS: 8000, ignoreUndefined: true });
   const start = performance.now();
   // db_selected is what client.db() gets below: always MONGODB_DB, never the database in the URI's path.
-  if (!quietRetry()) logEvent("CMS_DB", "connection_started", { db: name, db_selected: name, db_configured: name, matches_expected: name === EXPECTED_DB, ...describeMongoUri(uri) });
+  if (!quietRetry()) logEvent("CMS_DB", "connection_started", { connection_attempt: attempt, db: name, db_selected: name, db_configured: name, matches_expected: name === EXPECTED_DB, ...describeMongoUri(uri) });
+  // Three steps, so a failure names the one that failed: connecting (network, TLS, sign-in to the database), then
+  // making sure the indexes exist, then checking whether the database is new.
+  let phase = "connection";
+  let collection: string | undefined;
   try {
     await client.connect();
     const db = client.db(name);
-    for (const index of INDEXES) await db.collection(index.collection).createIndex(index.keys, { unique: index.unique ?? false, name: index.name, ...(index.onlyWhere ? { partialFilterExpression: index.onlyWhere } : {}) });
+    phase = "index setup";
+    for (const index of INDEXES) {
+      collection = index.collection;
+      await db.collection(index.collection).createIndex(index.keys, { unique: index.unique ?? false, name: index.name, ...(index.onlyWhere ? { partialFilterExpression: index.onlyWhere } : {}) });
+    }
+    phase = "seed check";
+    collection = "sites";
     await seedIfEmpty(db);
-    logEvent("CMS_DB", "connection_succeeded", { outcome: "success", ms: elapsed(start), db: name });
+    logEvent("CMS_DB", "connection_succeeded", { outcome: "success", connection_attempt: attempt, ms: elapsed(start), db: name });
     lastFailure = { key: "", at: 0 };
     return db;
   } catch (err) {
     await client.close().catch(() => undefined);
-    throw unavailable(err, "connection", elapsed(start));
+    throw unavailable(err, phase, elapsed(start), phase === "connection" ? undefined : collection, attempt);
   }
 }
 

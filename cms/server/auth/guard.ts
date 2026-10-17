@@ -6,6 +6,7 @@ import { SESSION_COOKIE } from "@/cms/lib/auth-shared";
 import { HOSTED_SITE_KEY, adminUrl } from "@/cms/lib/routes";
 import { json } from "../http";
 import { elapsed, logEvent, requestIdOf, withLogContext } from "../log";
+import { screenCategory } from "../mongo-failure";
 import { StoreUnavailableError } from "../store-errors";
 import { runAs } from "./actor";
 import { DEV_ADMIN, devAccessEnabled } from "./dev-access";
@@ -100,8 +101,11 @@ export async function withAdmin(request: Request, opts: { siteKey?: string; role
     return await withLogContext(ctx, () => runAs(user.email, () => handler(user)));
   } catch (err) {
     if (err instanceof StoreUnavailableError) {
-      logEvent("CMS_ROUTE", "admin_api_request", { rid: requestIdOf(request.headers), path: new URL(request.url).pathname, method: request.method, outcome: "failure", status: 503, code: err.kind ?? err.reason });
-      return json({ error: "unavailable", message: "The CMS database is not reachable at the moment. Nothing was changed. Try again shortly." }, 503);
+      // The same fields as before, plus a reference (this request's id in the server log) and a safe category.
+      const reference = requestIdOf(request.headers);
+      const category = screenCategory(err.kind ?? (err.reason === "not-configured" ? "not-configured" : undefined));
+      logEvent("CMS_ROUTE", "admin_api_request", { rid: reference, path: new URL(request.url).pathname, method: request.method, outcome: "failure", status: 503, code: err.kind ?? err.reason, category, reference });
+      return json({ error: "unavailable", message: "The CMS database is not reachable at the moment. Nothing was changed. Try again shortly.", reference, category }, 503);
     }
     throw err;
   }

@@ -2,7 +2,7 @@ import { requireAdminPage } from "@/cms/server/auth/guard";
 import { notFound } from "next/navigation";
 import { PostEditor } from "@/cms/components/admin/post-editor";
 import { emptyPostInput } from "@/cms/lib/content";
-import { readDb } from "@/cms/server/store";
+import { readDbForScreen } from "@/cms/server/admin-data";
 import { findSite } from "@/cms/server/sites";
 
 export const metadata = { title: "Create New Post" };
@@ -10,7 +10,7 @@ export const metadata = { title: "Create New Post" };
 export default async function NewPost({ params }: { params: Promise<{ site: string }> }) {
   const { site: key } = await params;
   await requireAdminPage({ siteKey: key });
-  const db = await readDb();
+  const db = await readDbForScreen("post-new");
   const site = findSite(db, key);
   if (!site) notFound();
   const authors = db.authors.filter((a) => a.siteIds.includes(site.id));

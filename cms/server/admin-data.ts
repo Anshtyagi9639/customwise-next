@@ -1,7 +1,9 @@
 import "server-only";
 import { headers } from "next/headers";
 import { currentLoginAttempt } from "./auth/guard";
+import { CMS_DIAGNOSTIC_PREFIX } from "@/cms/lib/diagnostics";
 import { elapsed, logEvent, requestIdOf, withLogContext } from "./log";
+import { screenCategory } from "./mongo-failure";
 import { readDb, storeKind } from "./store";
 import { StoreUnavailableError } from "./store-errors";
 import { lastReadStats } from "./store-mongo";
@@ -40,20 +42,40 @@ export async function readDbForScreen(screen: string) {
     return db;
   } catch (err) {
     const known = err instanceof StoreUnavailableError;
+    const kind = known ? (err.kind ?? err.reason) : "unknown";
+    const category = known ? screenCategory(err.kind ?? (err.reason === "not-configured" ? "not-configured" : undefined)) : "unknown";
     logEvent("CMS_DATA", "dashboard_load_failed", {
       rid,
       attempt,
       screen,
+      operation: "dashboard-data",
+      reference: rid,
+      category,
       outcome: "failure",
       status: 500,
       ms: elapsed(start),
-      code: known ? (err.kind ?? err.reason) : ((err as Error)?.name ?? "Error"),
+      code: known ? kind : ((err as Error)?.name ?? "Error"),
       reason: known ? err.reason : "error",
       msg: known
         ? "Signed in, but the CMS database could not be read, so the screen shows 'This screen could not be loaded'. The [CMS_DB] lines say why."
         : "Signed in, but loading the screen's data failed unexpectedly.",
     });
-    throw err;
+    throw new CmsScreenError(rid, "dashboard-data", 500, category, known ? kind : "unknown");
+  }
+}
+
+/**
+ * What reaches the admin error page (app/admin-blog/error.tsx) instead of the original error. Next.js keeps a digest
+ * that an error already has and passes it to the browser, while it hides the message in production. So the digest
+ * carries only what is safe to show: the reference (the request id of the [CMS_DATA] dashboard_load_failed line in the
+ * server log), the operation, the HTTP status and the category. The message stays generic.
+ */
+export class CmsScreenError extends Error {
+  readonly digest: string;
+  constructor(reference: string, operation: string, status: number, category: string, kind: string) {
+    super("An admin screen could not load its data. See the server log for this reference.");
+    this.name = "CmsScreenError";
+    this.digest = [CMS_DIAGNOSTIC_PREFIX, reference, operation, String(status), category, kind].map((part) => part.replace(/[^A-Za-z0-9._-]/g, "")).join(":");
   }
 }
 

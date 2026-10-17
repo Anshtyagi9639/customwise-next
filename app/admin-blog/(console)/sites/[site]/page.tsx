@@ -4,7 +4,7 @@ import { FilePlus2 } from "lucide-react";
 import { notFound } from "next/navigation";
 import { PostTable } from "@/cms/components/admin/post-table";
 import { displayStatus, formatDateTime } from "@/cms/lib/content";
-import { readDb } from "@/cms/server/store";
+import { readDbForScreen } from "@/cms/server/admin-data";
 import { enabledSites, findSite } from "@/cms/server/sites";
 
 export const metadata = { title: "Dashboard" };
@@ -12,7 +12,7 @@ export const metadata = { title: "Dashboard" };
 export default async function Dashboard({ params }: { params: Promise<{ site: string }> }) {
   const { site: key } = await params;
   const user = await requireAdminPage({ siteKey: key });
-  const db = await readDb();
+  const db = await readDbForScreen("site-overview");
   const site = findSite(db, key);
   if (!site) notFound();
 

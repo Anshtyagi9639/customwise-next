@@ -9,6 +9,9 @@
 // 1. Unit: the failure categories (from errors shaped like the driver's), the record shape check.
 // 2. HTTP: a production build against the local database (connection, counts, correct database, a broken record),
 //    and against settings that fail in each way (missing, malformed, unknown host, nothing listening).
+// 3. A second local MongoDB WITH passwords (from ../customs-wise-blog-cms-local's mongodb-memory-server, on 27019):
+//    a wrong password, a user without the rights to set up indexes, and a collection whose reads fail.
+//    The error screen's safe diagnostic details and the admin API's 503 reference are checked on the way.
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -34,7 +37,7 @@ for (const [name, file] of Object.entries({ "mongo-failure": "cms/server/mongo-f
   writeFileSync(path.join(unitDir, `${name}.js`), ts.transpileModule(readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText);
 }
 const req = createRequire(path.join(unitDir, "x.js"));
-const { describeMongoUri, mongoFailure } = req("./mongo-failure.js");
+const { describeMongoUri, driverErrorCode, mongoFailure, sanitizedDriverMessage, screenCategory } = req("./mongo-failure.js");
 const { checkDocs } = req("./doc-check.js");
 rmSync(unitDir, { recursive: true, force: true });
 
@@ -66,6 +69,13 @@ check("a value that is not a connection string: scheme invalid", describeMongoUr
 const multi = describeMongoUri("mongodb://u:p@db1.example.org:27017,db2.example.org:27017/x");
 check("several hosts are counted, only the first one's label is kept", multi.hosts === 2 && multi.cluster_label === "db1");
 
+console.log("\nThe driver's own message, cleaned for the log");
+const noisy = selection(Object.assign(new Error("connect ECONNREFUSED 10.1.2.3:27017 to shard-00-01.abcde.mongodb.net:27017 for user 'cms_user' via mongodb+srv://cms_user:secret@blog-cms-cluster.abcde.mongodb.net/x"), { name: "MongoNetworkError", code: "ECONNREFUSED" }));
+const cleaned = sanitizedDriverMessage(noisy);
+check("no IP, host name, user, password or connection string is left", !/10\.1\.2\.3|abcde|mongodb\.net|cms_user|secret|mongodb\+srv/.test(cleaned) && /ECONNREFUSED/.test(cleaned), cleaned);
+check("the innermost error code is found (ECONNREFUSED, 18, …)", driverErrorCode(noisy) === "ECONNREFUSED" && driverErrorCode(kinds.authentication) === "8000");
+check("each kind maps to the category the error screen shows", screenCategory("network-access") === "database-unreachable" && screenCategory("dns") === "database-unreachable" && screenCategory("timeout") === "database-unreachable" && screenCategory("authentication") === "database-authentication" && screenCategory("permission") === "database-permission" && screenCategory("query-failed") === "database-query" && screenCategory("invalid-document") === "database-invalid-record" && screenCategory("not-configured") === "database-not-configured" && screenCategory("whatever") === "unknown");
+
 console.log("\nRecord shape check");
 const posts = [
   { _id: "p1", siteId: "s", slug: "a", status: "published", body: [], publishAt: new Date() },
@@ -91,6 +101,30 @@ const provider = createServer((rq, rs) => {
 });
 await new Promise((ok) => provider.listen(0, "127.0.0.1", ok));
 const PROVIDER = `http://127.0.0.1:${provider.address().port}/emails`;
+
+/* A MongoDB with passwords, for real authentication, permission and query failures. */
+const AUTH_DB = "blog_cms_authtest";
+const PW = { root: `root-${Date.now().toString(36)}-Pw`, rw: `rw-${Date.now().toString(36)}-Pw`, ro: `ro-${Date.now().toString(36)}-Pw` };
+let authMongo = null;
+try {
+  const cmsLocal = path.join(process.cwd(), "..", "customs-wise-blog-cms-local");
+  const { MongoMemoryServer } = createRequire(path.join(cmsLocal, "package.json"))("mongodb-memory-server");
+  authMongo = await MongoMemoryServer.create({ instance: { ip: "127.0.0.1", port: 27019, storageEngine: "wiredTiger" }, auth: { enable: true, customRootName: "zzroot", customRootPwd: PW.root }, binary: { downloadDir: path.join(cmsLocal, "node_modules", ".cache", "mongodb-memory-server") } });
+  const { MongoClient: AdminClient } = require("mongodb");
+  const admin = new AdminClient(`mongodb://zzroot:${encodeURIComponent(PW.root)}@127.0.0.1:27019/?authSource=admin`);
+  await admin.connect();
+  await admin.db("admin").command({ createUser: "cms_rw", pwd: PW.rw, roles: [{ role: "readWrite", db: AUTH_DB }] });
+  await admin.db("admin").command({ createUser: "cms_ro", pwd: PW.ro, roles: [{ role: "read", db: AUTH_DB }] });
+  // "authors" has no index of its own, so the connection sets up fine and the failure happens on the dashboard's read.
+  await admin.db(AUTH_DB).createCollection("zz_source");
+  await admin.db(AUTH_DB).collection("zz_source").insertOne({ _id: "x" });
+  await admin.db(AUTH_DB).createCollection("authors", { viewOn: "zz_source", pipeline: [{ $project: { name: { $divide: [1, 0] } } }] });
+  await admin.close();
+} catch (err) {
+  console.log(`  SKIPPED  the MongoDB-with-passwords checks: ${String(err?.message ?? err).slice(0, 160)}`);
+  authMongo = null;
+}
+const authUri = (user, pw) => `mongodb://${user}:${encodeURIComponent(pw)}@127.0.0.1:27019/?authSource=admin`;
 
 const servers = {};
 const logs = {};
@@ -129,6 +163,11 @@ start(3363, { MONGODB_DB: "" });
 start(3364, { MONGODB_URI: "mongodb+srv://zz-no-such-cluster.invalid/" });
 start(3365, { MONGODB_URI: "mongodb://127.0.0.1:27999" }); // nothing listens there
 start(3366, { CMS_DEBUG: "0" }); // the temporary [CMS_DEBUG] lines switched off
+if (authMongo) {
+  start(3367, { MONGODB_URI: authUri("cms_rw", "wrong-password"), MONGODB_DB: AUTH_DB }); // wrong password
+  start(3368, { MONGODB_URI: authUri("cms_ro", PW.ro), MONGODB_DB: AUTH_DB }); // may read, may not create indexes
+  start(3369, { MONGODB_URI: authUri("cms_rw", PW.rw), MONGODB_DB: AUTH_DB }); // fine, but reading "authors" fails
+}
 
 const http = async (port, p, { method = "GET", body, cookie } = {}) => {
   const h = {};
@@ -257,7 +296,43 @@ try {
   check("no log line contains a connection string or a full host name, and the health answer not even the cluster's name", Object.values(logs).every((l) => !/mongodb(\+srv)?:\/\/(?!\[)/.test(l) && !l.includes("zz-no-such-cluster.invalid"))
     && !(await http(3364, "/admin-blog/api/health")).text.includes("zz-no-such-cluster"), Object.entries(logs).flatMap(([port, l]) => l.split(/\r?\n/).filter((x) => /mongodb(\+srv)?:\/\/(?!\[)|zz-no-such-cluster\.invalid/.test(x)).map((x) => `${port}: ${x.replace(/mongodb(\+srv)?:\/\/\S*/g, "mongodb://…").slice(0, 160)}`)).slice(0, 3).join(" || "));
   check("database down: the public blog still answers, and a CMS article address is a server error, not a 404", (await http(3365, "/blog")).status === 200 && (await http(3365, "/insights/blog/zz-only-in-the-cms")).status === 500);
+  console.log("\nThe dashboard with the database down: the error screen's safe details, and the admin API");
+  const signInOn = async (port) => {
+    await http(port, "/admin-blog/api/auth/link", { method: "POST", body: { action: "send" } });
+    const t = (outbox.at(-1)?.text ?? "").match(/#([A-Za-z0-9_-]{43})/)?.[1];
+    const v = await http(port, "/admin-blog/api/auth/link", { method: "POST", body: { action: "verify", token: t } });
+    return { ok: v.status === 200, cookie: (v.setCookie.find((c) => c.startsWith("__Secure-cw_admin=")) ?? "").split(";")[0], token: t };
+  };
+  const downIn = await signInOn(3365);
+  check("signing in works while the database is down (it does not need it)", downIn.ok && !!downIn.cookie);
+  const downDash = await http(3365, "/admin-blog/sites/customs-wise", { cookie: downIn.cookie });
+  const downRid = downDash.headers.get("x-request-id");
+  const digest = downDash.text.match(/cmsdiag:[A-Za-z0-9._-]+:[A-Za-z0-9._-]+:[0-9]+:[A-Za-z0-9._-]+:[A-Za-z0-9._-]+/)?.[0] ?? "";
+  check("the landing page is a 500 whose error carries the safe digest cmsdiag:<reference>:dashboard-data:500:database-unreachable:network", downDash.status === 500 && digest === `cmsdiag:${downRid}:dashboard-data:500:database-unreachable:network`, `${downDash.status} ${digest} rid=${downRid}`);
+  check("…the reference is the rid of the server's [CMS_DATA] dashboard_load_failed line, with the same category", lines(3365, new RegExp(`\\[CMS_DATA\\] dashboard_load_failed rid=${downRid} `)).some((l) => /reference=/.test(l) && /category=database-unreachable/.test(l) && /operation=dashboard-data/.test(l)));
+  // (The signed-in administrator's own address is in the page header, as on every admin screen; that is not a leak.)
+  check("…and the page sent to the browser holds no connection string, database address or port, driver error or token", !/mongodb:\/\/|27999|127\.0\.0\.1|ECONNREFUSED|MongoServer/.test(downDash.text) && !downDash.text.includes(downIn.token), downDash.text.match(/.{0,60}(mongodb:\/\/|27999|127\.0\.0\.1|ECONNREFUSED|MongoServer).{0,60}/)?.[0] ?? "");
+  const downApi = await http(3365, "/admin-blog/api/sites/customs-wise/posts", { cookie: downIn.cookie });
+  check("the admin API: still 503 with the same error and message, plus reference (= X-Request-Id) and category", downApi.status === 503 && downApi.data.error === "unavailable" && /not reachable/.test(downApi.data.message ?? "") && downApi.data.reference === downApi.headers.get("x-request-id") && downApi.data.category === "database-unreachable" && Object.keys(downApi.data).sort().join(",") === "category,error,message,reference", JSON.stringify(downApi.data));
+  check("…and the server logged that same reference", lines(3365, new RegExp(`\\[CMS_ROUTE\\] admin_api_request rid=${downApi.data.reference} `)).some((l) => /status=503/.test(l) && /category=database-unreachable/.test(l)));
+  const failedConn = lines(3365, /\[CMS_DB\] connection_failed /)[0] ?? "";
+  check("[CMS_DB] connection_failed gives the attempt number, error name, error code and a cleaned message", /connection_attempt=\d+/.test(failedConn) && /error_name=MongoServerSelectionError/.test(failedConn) && /error_code=ECONNREFUSED/.test(failedConn) && /error_message=/.test(failedConn) && !/27999|127\.0\.0\.1/.test(failedConn), failedConn.slice(0, 300));
+  check("the landing page itself (not only its layout) goes through the logged loader, as screen=site-overview", lines(3365, /\[CMS_DATA\] dashboard_load_failed /).some((l) => /screen=site-overview/.test(l)));
+
+  console.log("\nA MongoDB with passwords: authentication, permission and query failures");
+  if (!authMongo) console.log("  SKIPPED  (no mongodb-memory-server in ../customs-wise-blog-cms-local)");
+  else {
+    const kindOn = async (port) => (await http(port, "/admin-blog/api/health")).data.database?.kind;
+    check("a wrong password: database.kind=authentication, [CMS_DB] connection_failed code=authentication category=database-authentication", (await kindOn(3367)) === "authentication" && lines(3367, /\[CMS_DB\] connection_failed /).some((l) => /code=authentication/.test(l) && /category=database-authentication/.test(l) && /error_code=18/.test(l)), lines(3367, /\[CMS_DB\] /).map((l) => l.slice(25, 200)).join(" | "));
+    check("a user that may only read: connected, then index setup refused: [CMS_DB] query_failed during=\"index setup\" code=permission", (await kindOn(3368)) === "permission" && lines(3368, /\[CMS_DB\] query_failed /).some((l) => /during="index setup"/.test(l) && /code=permission/.test(l) && /collection=\w+/.test(l)), lines(3368, /\[CMS_DB\] /).map((l) => l.slice(25, 220)).join(" | "));
+    const rwIn = await signInOn(3369);
+    const rwDash = await http(3369, "/admin-blog/sites/customs-wise", { cookie: rwIn.cookie });
+    check("connected, but reading \"authors\" fails: [CMS_DB] query_failed collection=authors code=query-failed", lines(3369, /\[CMS_DB\] query_failed /).some((l) => /collection=authors/.test(l) && /code=query-failed/.test(l) && /during=read/.test(l)), lines(3369, /\[CMS_DB\] /).map((l) => l.slice(25, 220)).join(" | "));
+    check("…the dashboard is a 500 whose safe digest says database-query (query-failed), with its reference", rwDash.status === 500 && rwDash.text.includes(`cmsdiag:${rwDash.headers.get("x-request-id")}:dashboard-data:500:database-query:query-failed`), `${rwDash.status}`);
+    check("no log line holds a database password or user:password pair", Object.values(logs).every((l) => !l.includes(PW.rw) && !l.includes(PW.ro) && !l.includes(PW.root) && !l.includes("wrong-password")));
+  }
 } finally {
+  await authMongo?.stop().catch(() => undefined);
   await db?.collection("posts").deleteMany({ _id: { $in: [BROKEN_ID, DRAFT_ID] } }).catch(() => undefined);
   await client.close().catch(() => undefined);
   provider.close();

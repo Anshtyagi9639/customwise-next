@@ -84,3 +84,57 @@ export function describeMongoUri(uri: string): Record<string, string | number | 
   const label = /^(\d+\.){3}\d+$/.test(first) || first === "localhost" ? first : first.split(".")[0];
   return { connection_string_set: true, scheme: m[1], cluster_label: label || "none", hosts: hosts.length, path_db: pathDb || "none", auth_source_set: /(^|&)authSource=/i.test(query) };
 }
+
+/**
+ * The most specific driver message in the error chain, cleaned for the server log: host names, IP addresses,
+ * ports, email addresses, quoted values and anything after an "@" are removed, and it is cut to 200 characters.
+ * Never shown in the browser.
+ */
+export function sanitizedDriverMessage(err: unknown): string {
+  const all = chain(err);
+  const inner = [...all].reverse().find((e) => typeof e.message === "string" && e.message.trim() !== "") ?? all[0];
+  const raw = typeof inner?.message === "string" ? inner.message : "";
+  return raw
+    .replace(/mongodb(\+srv)?:\/\/\S+/gi, "[connection string]")
+    .replace(/\S+@\S+/g, "[hidden]")
+    .replace(/\b(\d{1,3}\.){3}\d{1,3}(:\d+)?\b/g, "[ip]")
+    .replace(/[a-z0-9_-]+(\.[a-z0-9_-]+)*\.[a-z]{2,}(:\d+)?\b/gi, "[host]")
+    .replace(/(["'`])[^"'`]{0,200}\1/g, "[value]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+}
+
+/** The innermost error code in the chain (an errno such as ECONNREFUSED, or a MongoDB server code), if any. */
+export function driverErrorCode(err: unknown): string | undefined {
+  for (const e of [...chain(err)].reverse()) if (e.code !== undefined && e.code !== null && String(e.code) !== "") return String(e.code);
+  return undefined;
+}
+
+/**
+ * The coarse category shown on the admin error screen (with the exact kind next to it), so the person knows which
+ * kind of problem it is without seeing any detail: database-not-configured, database-unreachable (network access,
+ * DNS, network, timeout), database-authentication, database-permission, database-query, database-invalid-record or
+ * unknown.
+ */
+export function screenCategory(kind: string | undefined): string {
+  switch (kind) {
+    case "not-configured":
+      return "database-not-configured";
+    case "network-access":
+    case "dns":
+    case "network":
+    case "timeout":
+      return "database-unreachable";
+    case "authentication":
+      return "database-authentication";
+    case "permission":
+      return "database-permission";
+    case "query-failed":
+      return "database-query";
+    case "invalid-document":
+      return "database-invalid-record";
+    default:
+      return "unknown";
+  }
+}

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { UsersManager } from "@/cms/components/auth/users-manager";
 import { listAccounts } from "@/cms/server/auth/accounts";
 import { requireAdminPage } from "@/cms/server/auth/guard";
-import { readDb } from "@/cms/server/store";
+import { readDbForScreen } from "@/cms/server/admin-data";
 import { enabledSites } from "@/cms/server/sites";
 
 export const metadata: Metadata = { title: "Users" };
@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: "Users" };
 /** Administrators only: everyone else gets a 404. */
 export default async function UsersPage() {
   const me = await requireAdminPage({ role: "admin" });
-  const [accounts, db] = await Promise.all([listAccounts(), readDb()]);
+  const [accounts, db] = await Promise.all([listAccounts(), readDbForScreen("users")]);
   return (
     <div className="mx-auto grid max-w-5xl gap-6 px-4 py-6 sm:px-6 lg:py-8">
       <div>

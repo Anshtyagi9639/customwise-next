@@ -1,7 +1,7 @@
 import { requireAdminPage } from "@/cms/server/auth/guard";
 import { notFound } from "next/navigation";
 import { AuthorsManager } from "@/cms/components/admin/managers";
-import { readDb } from "@/cms/server/store";
+import { readDbForScreen } from "@/cms/server/admin-data";
 import { enabledSites, findSite } from "@/cms/server/sites";
 
 export const metadata = { title: "Authors" };
@@ -9,7 +9,7 @@ export const metadata = { title: "Authors" };
 export default async function AuthorsPage({ params }: { params: Promise<{ site: string }> }) {
   const { site: key } = await params;
   await requireAdminPage({ siteKey: key, role: "admin" });
-  const db = await readDb();
+  const db = await readDbForScreen("authors");
   const site = findSite(db, key);
   if (!site) notFound();
   const counts: Record<string, number> = {};

@@ -1,7 +1,7 @@
 import { requireAdminPage } from "@/cms/server/auth/guard";
 import { notFound } from "next/navigation";
 import { CategoriesManager } from "@/cms/components/admin/managers";
-import { readDb } from "@/cms/server/store";
+import { readDbForScreen } from "@/cms/server/admin-data";
 import { findSite } from "@/cms/server/sites";
 
 export const metadata = { title: "Categories" };
@@ -9,7 +9,7 @@ export const metadata = { title: "Categories" };
 export default async function CategoriesPage({ params }: { params: Promise<{ site: string }> }) {
   const { site: key } = await params;
   await requireAdminPage({ siteKey: key });
-  const db = await readDb();
+  const db = await readDbForScreen("categories");
   const site = findSite(db, key);
   if (!site) notFound();
   const categories = db.categories.filter((c) => c.siteId === site.id).sort((a, b) => a.order - b.order);
