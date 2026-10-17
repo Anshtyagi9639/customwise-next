@@ -11,7 +11,7 @@ const ADVICE = {
   network: "the database server could not be reached (connection refused, reset or timed out)",
   permission: "the database user may not use this database (give it readWrite on MONGODB_DB in Atlas → Database Access)",
   timeout: "no database server answered in time",
-  other: "unexpected database error",
+  unknown: "unexpected database error",
 };
 
 /** The error and everything underneath it: causes, and the error of every server the driver tried. */
@@ -41,7 +41,7 @@ export function mongoFailure(err) {
               ? "permission"
               : /MongoServerSelectionError|Server selection timed out/i.test(text)
                 ? "timeout"
-                : "other";
+                : "unknown";
   const top = err ?? {};
   const summary = `${String(top.name ?? "Error")}${top.code !== undefined ? ` code=${String(top.code)}` : ""}${top.codeName ? ` (${String(top.codeName)})` : ""}`;
   return { kind, advice: ADVICE[kind], summary };

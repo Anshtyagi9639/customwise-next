@@ -57,7 +57,7 @@ const isLocalHost = (host: string) => host === "localhost" || host.endsWith(".lo
 
 const warned = new Set<string>();
 function warnOnce(message: string) {
-  if (!warned.has(message)) logEvent("CMS_AUTH", "configuration_warning", { outcome: "rejected", msg: message });
+  if (!warned.has(message)) logEvent("CMS_CONFIG", "warning", { outcome: "rejected", msg: message });
   warned.add(message);
 }
 
@@ -242,12 +242,12 @@ export async function sendLinkEmail(to: string, link: string, ids: { rid?: strin
   const sender = signInSender();
   if (!apiKey || !sender) {
     const missing = [!apiKey && "EMAIL_API_KEY", !sender && (process.env.CMS_EMAIL_FROM?.trim() || process.env.EMAIL_FROM?.trim() ? "a valid sender (CMS_EMAIL_FROM or EMAIL_FROM, as Name <address>)" : "EMAIL_FROM")].filter(Boolean).join(" and ");
-    logEvent("CMS_AUTH", "email_send_failed", { rid, attempt, outcome: "failure", code: "not_configured", msg: `Email sign-in is not set up: missing ${missing}. No email was sent.` });
+    logEvent("CMS_EMAIL", "send_failed", { rid, attempt, outcome: "failure", code: "not-configured", msg: `Email sign-in is not set up: missing ${missing}. No email was sent.` });
     return { sent: false, reason: "not-configured" };
   }
   const email = buildLinkEmail(link);
   const start = performance.now();
-  logEvent("CMS_AUTH", "email_send_started", { rid, attempt, provider: "resend", to: maskEmail(to), sender_domain: sender.domain });
+  logEvent("CMS_EMAIL", "send_started", { rid, attempt, provider: "resend", to: maskEmail(to), sender_domain: sender.domain });
   try {
     const res = await fetch(sendEndpoint(), {
       method: "POST",
@@ -260,22 +260,22 @@ export async function sendLinkEmail(to: string, link: string, ids: { rid?: strin
       // The provider's answer says why. It contains no secret of ours; addresses in it are masked.
       const detail = maskAddresses((await res.text().catch(() => "")).slice(0, 300));
       const refusal = classifyRefusal(res.status, detail);
-      logEvent("CMS_AUTH", "email_send_failed", { rid, attempt, outcome: "failure", status: res.status, ms: elapsed(start), code: refusal.reason, msg: `Sign-in email NOT sent: Resend refused it (${res.status}, ${refusal.reason}). ${refusal.log} Resend said: ${detail}` });
+      logEvent("CMS_EMAIL", "send_failed", { rid, attempt, outcome: "failure", status: res.status, ms: elapsed(start), code: refusal.reason, msg: `Sign-in email NOT sent: Resend refused it (${res.status}, ${refusal.reason}). ${refusal.log} Resend said: ${detail}` });
       return { sent: false, reason: refusal.reason };
     }
     // The provider's id lets the email be found in its logs (Resend → Emails). It is not a secret.
     const raw = ((await res.json().catch(() => ({}))) as { id?: unknown }).id;
     const id = typeof raw === "string" && /^[A-Za-z0-9-]{8,80}$/.test(raw) ? raw : null;
-    logEvent("CMS_AUTH", "email_provider_accepted", { rid, attempt, outcome: "success", status: res.status, ms: elapsed(start), provider_id: id ?? "none", msg: `Sign-in email to ${maskEmail(to)} ACCEPTED by Resend${id ? ` (id ${id})` : ""}. Accepted is not yet delivered.` });
+    logEvent("CMS_EMAIL", "provider_accepted", { rid, attempt, outcome: "success", status: res.status, ms: elapsed(start), provider_id: id ?? "none", msg: `Sign-in email to ${maskEmail(to)} ACCEPTED by Resend${id ? ` (id ${id})` : ""}. Accepted is not yet delivered.` });
     if (id) logDeliveryLater(id, attempt);
     return { sent: true, id };
   } catch (err) {
     const name = (err as Error)?.name ?? "Error";
     if (name === "TimeoutError") {
-      logEvent("CMS_AUTH", "email_send_failed", { rid, attempt, outcome: "failure", ms: elapsed(start), code: "provider-timeout", msg: `Resend did not answer within ${SEND_TIMEOUT_MS} ms. The email may or may not have been sent; its link is kept, so it works if it arrives.` });
+      logEvent("CMS_EMAIL", "send_failed", { rid, attempt, outcome: "failure", ms: elapsed(start), code: "provider-timeout", msg: `Resend did not answer within ${SEND_TIMEOUT_MS} ms. The email may or may not have been sent; its link is kept, so it works if it arrives.` });
       return { sent: false, reason: "provider-timeout" };
     }
-    logEvent("CMS_AUTH", "email_send_failed", { rid, attempt, outcome: "failure", ms: elapsed(start), code: "unreachable", msg: `Sign-in email NOT sent: Resend could not be reached (${name}).` });
+    logEvent("CMS_EMAIL", "send_failed", { rid, attempt, outcome: "failure", ms: elapsed(start), code: "unreachable", msg: `Sign-in email NOT sent: Resend could not be reached (${name}).` });
     return { sent: false, reason: "unreachable" };
   }
 }
@@ -317,17 +317,17 @@ export async function deliveryStatus(id: string, key: string): Promise<{ ok: tru
 function logDeliveryLater(id: string, attempt?: string): void {
   const key = process.env.RESEND_READ_API_KEY?.trim();
   if (!key) {
-    logEvent("CMS_AUTH", "email_delivery_unconfirmed", { attempt, provider_id: id, msg: `Delivery not confirmed. To check it: Resend → Emails, or set RESEND_READ_API_KEY and run npm run cms:email-status -- ${id}` });
+    logEvent("CMS_EMAIL", "delivery_unconfirmed", { attempt, provider_id: id, msg: `Delivery not confirmed. To check it: Resend → Emails, or set RESEND_READ_API_KEY and run npm run cms:email-status -- ${id}` });
     return;
   }
   setTimeout(async () => {
     const status = await deliveryStatus(id, key);
     if (!status.ok) {
-      logEvent("CMS_AUTH", "email_delivery_status", { attempt, provider_id: id, code: "unknown", msg: `Delivery status of sign-in email ${id} unknown: ${status.why}` });
+      logEvent("CMS_EMAIL", "delivery_status", { attempt, provider_id: id, code: "unknown", msg: `Delivery status of sign-in email ${id} unknown: ${status.why}` });
       return;
     }
     const bad = ["bounced", "suppressed", "failed", "complained", "canceled"].includes(status.event);
-    logEvent("CMS_AUTH", "email_delivery_status", { attempt, provider_id: id, outcome: status.event === "delivered" ? "success" : bad ? "failure" : "info", code: status.event, msg: `Delivery status of sign-in email ${id}: ${status.event} - ${DELIVERY_MEANING[status.event] ?? "see Resend → Emails"}` });
+    logEvent("CMS_EMAIL", "delivery_status", { attempt, provider_id: id, outcome: status.event === "delivered" ? "success" : bad ? "failure" : "info", code: status.event, msg: `Delivery status of sign-in email ${id}: ${status.event} - ${DELIVERY_MEANING[status.event] ?? "see Resend → Emails"}` });
   }, DELIVERY_CHECK_DELAY_MS).unref?.();
 }
 

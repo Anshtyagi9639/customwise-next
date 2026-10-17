@@ -9,7 +9,7 @@ import { clientIp, isSameOriginRequest } from "@/cms/server/auth/request";
 import { sessionCookie } from "@/cms/server/auth/sessions";
 import { type ThrottleKey, memoryClearFailures, memoryLockedFor, memoryRecordFailure } from "@/cms/server/auth/throttle";
 import { json, readJson } from "@/cms/server/http";
-import { elapsed, logEvent, newRequestId } from "@/cms/server/log";
+import { elapsed, logEvent, newRequestId, requestIdOf } from "@/cms/server/log";
 
 /**
  * Sign-in by email link (cms/server/auth/email-link.ts). No session needed, no database used.
@@ -22,7 +22,7 @@ import { elapsed, logEvent, newRequestId } from "@/cms/server/log";
  * link, so the send and the later use of its link can be matched in the log.
  */
 export async function POST(request: Request) {
-  const rid = newRequestId();
+  const rid = requestIdOf(request.headers); // made by proxy.ts for this request
   const start = performance.now();
   let res: Response;
   try {
@@ -75,9 +75,9 @@ async function handle(request: Request, rid: string): Promise<Response> {
   }
   const ip = clientIp(request);
   const env = envAdmin();
-  logEvent("CMS_AUTH", "email_validation", { rid, outcome: env.state === "ok" ? "success" : "failure", code: env.state === "ok" ? "admin_email_ok" : env.state === "off" ? "admin_email_missing" : "admin_email_invalid" });
+  logEvent("CMS_AUTH", "admin_validation_completed", { rid, outcome: env.state === "ok" ? "success" : "failure", code: env.state === "ok" ? "admin_email_ok" : env.state === "off" ? "admin_email_missing" : "admin_email_invalid" });
   if (env.state !== "ok") {
-    logEvent("CMS_AUTH", "configuration_check", { rid, outcome: "failure", status: 503, missing: ["ADMIN_EMAIL"], code: env.state === "invalid" ? "invalid" : "missing" });
+    logEvent("CMS_CONFIG", "validation_completed", { rid, outcome: "failure", status: 503, missing: ["ADMIN_EMAIL"], code: env.state === "invalid" ? "invalid" : "missing" });
     return reply({ error: "unavailable", message: env.state === "invalid" ? SIGN_IN_NOT_CONFIGURED : "Email sign-in is not set up on this website." }, 503);
   }
 
@@ -100,11 +100,12 @@ async function handle(request: Request, rid: string): Promise<Response> {
     }
     // Each request counts towards the limit, whether or not the email goes out.
     memoryRecordFailure(keys);
+    logEvent("CMS_CONFIG", "validation_started", { rid, checks: ["EMAIL_API_KEY", "EMAIL_FROM", "CMS_PUBLIC_URL"] });
     const missing = missingForSend(request.url);
-    logEvent("CMS_AUTH", "configuration_check", { rid, outcome: missing.length ? "failure" : "success", missing });
+    logEvent("CMS_CONFIG", "validation_completed", { rid, outcome: missing.length ? "failure" : "success", missing });
     const base = linkBaseUrl(request.url);
     if (!base) {
-      logEvent("CMS_AUTH", "email_send_failed", { rid, outcome: "failure", status: 503, code: "not_configured", msg: "Email sign-in links need the website's address: set CMS_PUBLIC_URL (or NEXT_PUBLIC_SITE_URL) to the live https:// address. No email was sent." });
+      logEvent("CMS_EMAIL", "send_failed", { rid, outcome: "failure", status: 503, code: "not-configured", msg: "Email sign-in links need the website's address: set CMS_PUBLIC_URL (or NEXT_PUBLIC_SITE_URL) to the live https:// address. No email was sent." });
       return reply({ error: "unavailable", message: SEND_FAILED["not-configured"] }, 503);
     }
     const attempt = newRequestId();
@@ -137,7 +138,7 @@ async function handle(request: Request, rid: string): Promise<Response> {
   }
 
   if (action === "verify") {
-    logEvent("CMS_AUTH", "verification_started", { rid });
+    logEvent("CMS_AUTH", "verification_started", { rid, token_present: typeof body.token === "string" && body.token !== "" });
     const failures: ThrottleKey[] = [{ id: `link-verify:ip:${ip}`, limit: 20 }];
     if (memoryLockedFor(failures) > 0) {
       logEvent("CMS_AUTH", "request_rejected", { rid, outcome: "rejected", status: 429, code: "verify_locked" });
@@ -146,15 +147,16 @@ async function handle(request: Request, rid: string): Promise<Response> {
     const used = consumeLinkToken(body.token);
     if (!used.ok) {
       memoryRecordFailure(failures);
-      logEvent("CMS_AUTH", "token_validation_failed", { rid, attempt: used.attempt, outcome: "rejected", status: 400, code: used.reason });
+      logEvent("CMS_AUTH", "token_validation_completed", { rid, attempt: used.attempt, outcome: "rejected", status: 400, code: used.reason });
       return reply({ error: "invalid", message: "This sign-in link has expired or has already been used." }, 400);
     }
     memoryClearFailures(failures[0]);
+    logEvent("CMS_AUTH", "token_validation_completed", { rid, attempt: used.attempt, outcome: "success", code: "valid" });
     logEvent("CMS_AUTH", "token_consumed", { rid, attempt: used.attempt, outcome: "success" });
     const t = performance.now();
     let session: string;
     try {
-      session = createEnvSession(used.env);
+      session = createEnvSession(used.env, Date.now(), used.attempt);
     } catch (err) {
       // The link is used up, but no session could be stored: the person needs a new link once the store works again.
       logEvent("CMS_AUTH", "session_create_failed", { rid, attempt: used.attempt, outcome: "failure", status: 503, ms: elapsed(t), code: err instanceof AuthStoreError ? "auth_store" : ((err as Error)?.name ?? "Error") });

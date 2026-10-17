@@ -43,7 +43,7 @@ export async function createSession(user: AdminUser, meta: { ip: string; userAge
 }
 
 /** The signed-in user for a session token, or null. Also extends the idle timeout while the user is active. */
-export async function readSession(token: string | undefined): Promise<{ sessionId: string; user: AdminUser } | null> {
+export async function readSession(token: string | undefined): Promise<{ sessionId: string; user: AdminUser; attempt?: string } | null> {
   if (isEnvSessionToken(token)) return readEnvSession(token);
   if (!token || !TOKEN_PATTERN.test(token)) return null;
   const id = hashToken(token);

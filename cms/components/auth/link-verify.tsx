@@ -24,7 +24,9 @@ export function LinkVerify() {
       setProblem(null);
       checking = true;
       const res = await fetch("/admin-blog/api/auth/link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "verify", token }), credentials: "same-origin" }).catch(() => null);
-      const data = ((await res?.json().catch(() => ({}))) ?? {}) as { redirect?: string; message?: string };
+      const data = ((await res?.json().catch(() => ({}))) ?? {}) as { redirect?: string; message?: string; requestId?: string };
+      // Browser console: the status, the reference and where it goes next (never the token or the link).
+      (res?.ok ? console.info : console.warn)(`[CMS] sign-in link check: ${res ? `HTTP ${res.status}` : "network error"}${data.requestId ? `, reference ${data.requestId}` : ""}${data.redirect ? `, going to ${data.redirect}` : ""}`);
       if (res?.ok && data.redirect) {
         // A full page load, so the new session cookie is used for everything that follows.
         window.location.replace(data.redirect);

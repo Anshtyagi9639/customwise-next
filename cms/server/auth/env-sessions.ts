@@ -21,7 +21,8 @@ const TOKEN_PATTERN = /^e\.[A-Za-z0-9_-]{43}$/;
 const MAX_SESSIONS = 500;
 const TOUCH_EVERY_MS = 60 * 1000;
 
-type EnvSession = { createdAt: number; lastSeenAt: number; idleExpiresAt: number; expiresAt: number; settings: string };
+/** attempt: the login attempt that created the session (the email link's), so later requests can be matched to it. */
+type EnvSession = { createdAt: number; lastSeenAt: number; idleExpiresAt: number; expiresAt: number; settings: string; attempt?: string };
 
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 /** Which settings a session was made with: any change to them ends every session. */
@@ -44,15 +45,15 @@ function prune(now: number) {
   while (live.length >= MAX_SESSIONS) removeRecord("session", live.shift()!.id);
 }
 
-export function createEnvSession(env: Extract<EnvAdmin, { state: "ok" }>, now = Date.now()): string {
+export function createEnvSession(env: Extract<EnvAdmin, { state: "ok" }>, now = Date.now(), attempt?: string): string {
   prune(now);
   const token = `${ENV_TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
-  putRecord("session", sha256(token), { createdAt: now, lastSeenAt: now, idleExpiresAt: now + SESSION_IDLE_MS, expiresAt: now + SESSION_ABSOLUTE_MS, settings: fingerprint(env) } satisfies EnvSession);
+  putRecord("session", sha256(token), { createdAt: now, lastSeenAt: now, idleExpiresAt: now + SESSION_IDLE_MS, expiresAt: now + SESSION_ABSOLUTE_MS, settings: fingerprint(env), ...(attempt ? { attempt } : {}) } satisfies EnvSession);
   return token;
 }
 
 /** The administrator for a valid settings session, or null. Also extends the idle timeout while it is used. */
-export function readEnvSession(token: string, now = Date.now()): { sessionId: string; user: AdminUser } | null {
+export function readEnvSession(token: string, now = Date.now()): { sessionId: string; user: AdminUser; attempt?: string } | null {
   if (!TOKEN_PATTERN.test(token)) return null;
   const id = sha256(token);
   try {
@@ -66,7 +67,7 @@ export function readEnvSession(token: string, now = Date.now()): { sessionId: st
     if (now - session.lastSeenAt > TOUCH_EVERY_MS) {
       putRecord("session", id, { ...session, lastSeenAt: now, idleExpiresAt: Math.min(now + SESSION_IDLE_MS, session.expiresAt) });
     }
-    return { sessionId: id, user: envAdminUser(env) };
+    return { sessionId: id, user: envAdminUser(env), ...(session.attempt ? { attempt: session.attempt } : {}) };
   } catch (err) {
     // The records cannot be read (logged by the store): treated as signed out, never as signed in.
     if (err instanceof AuthStoreError) return null;

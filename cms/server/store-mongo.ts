@@ -3,8 +3,9 @@ import { type AnyBulkWriteOperation, type Db, MongoClient } from "mongodb";
 import { seedDatabase } from "./seed";
 import type { Database } from "./store";
 import { StoreConflictError, StoreUnavailableError } from "./store-errors";
-import { elapsed, logEvent } from "./log";
-import { mongoFailure } from "./mongo-failure";
+import { debugEvent, elapsed, logEvent } from "./log";
+import { checkDocs } from "./doc-check";
+import { describeMongoUri, mongoFailure } from "./mongo-failure";
 
 /**
  * MongoDB store (MongoDB Atlas in production use; any MongoDB server for testing).
@@ -50,7 +51,7 @@ let lastConfigLog = 0;
 function notConfigured(reason: string): never {
   if (Date.now() - lastConfigLog > 60_000) {
     lastConfigLog = Date.now();
-    logEvent("CMS_DB", "connection_failed", { outcome: "failure", code: "not_configured", msg: `MongoDB is not configured on this server: ${reason}` });
+    logEvent("CMS_DB", "connection_failed", { outcome: "failure", code: "not-configured", missing: [/MONGODB_DB/.test(reason) ? "MONGODB_DB" : "MONGODB_URI"], msg: `MongoDB is not configured on this server: ${reason}` });
   }
   throw new StoreUnavailableError(`The CMS database is not configured: ${reason}`, "not-configured", "not-configured");
 }
@@ -65,12 +66,15 @@ function config(): { uri: string; name: string } {
   return { uri, name };
 }
 
+/** The database the CMS is meant to use in production. */
+const EXPECTED_DB = "blog_cms";
+
 /** Logs what kind of failure happened and what to do, and nothing else: driver messages can contain host names. */
-function unavailable(err: unknown, during: string, ms?: number): StoreUnavailableError {
+function unavailable(err: unknown, during: string, ms?: number, collection?: string): StoreUnavailableError {
   if (err instanceof StoreUnavailableError) return err;
-  const f = mongoFailure(err);
+  const f = mongoFailure(err, during);
   if (shouldLogFailure(`${during}:${f.kind}`)) {
-    logEvent("CMS_DB", during === "connection" ? "connection_failed" : "query_failed", { outcome: "failure", ms, code: f.kind, during, error: f.summary, suppressed: takeSuppressed(), msg: `MongoDB ${during} failed (${f.kind}): ${f.advice}.` });
+    logEvent("CMS_DB", during === "connection" ? "connection_failed" : "query_failed", { outcome: "failure", ms, code: f.kind, during, db: dbName(), collection, error: f.summary, suppressed: takeSuppressed(), msg: `MongoDB ${during} failed (${f.kind}): ${f.advice}.` });
   }
   return new StoreUnavailableError(undefined, "unreachable", f.kind);
 }
@@ -97,6 +101,8 @@ function takeSuppressed(): number | undefined {
 const quietRetry = () => lastFailure.key.startsWith("connection:") && Date.now() - lastFailure.at < 60_000;
 
 const isDuplicateKey = (err: unknown) => (err as { code?: unknown })?.code === 11000;
+/** The database name, for log lines (it is not a secret; the connection string never is logged). */
+const dbName = () => setting("MONGODB_DB") || undefined;
 
 // One client per process, kept on globalThis so development reloads and every request reuse the same connection pool.
 const KEY = Symbol.for("cms.store.mongodb");
@@ -106,7 +112,8 @@ async function open(): Promise<Db> {
   const { uri, name } = config();
   const client = new MongoClient(uri, { appName: "multi-site-blog-cms", maxPoolSize: 10, serverSelectionTimeoutMS: 8000, ignoreUndefined: true });
   const start = performance.now();
-  if (!quietRetry()) logEvent("CMS_DB", "connection_started", { db: name, srv: uri.startsWith("mongodb+srv://") });
+  // db_selected is what client.db() gets below: always MONGODB_DB, never the database in the URI's path.
+  if (!quietRetry()) logEvent("CMS_DB", "connection_started", { db: name, db_selected: name, db_configured: name, matches_expected: name === EXPECTED_DB, ...describeMongoUri(uri) });
   try {
     await client.connect();
     const db = client.db(name);
@@ -146,22 +153,60 @@ async function seedIfEmpty(db: Db) {
 
 const fromDocs = <T>(docs: Doc[]) => docs.map(({ _id, ...rest }) => ({ id: _id, ...rest }) as T);
 
+/** What the last read found, for the admin screens' log line (cms/server/admin-data.ts). Counts only. */
+export type ReadStats = { ms: number; counts: Record<string, number>; invalid: Record<string, number> };
+let lastRead: ReadStats | null = null;
+export const lastReadStats = () => lastRead;
+
 export async function loadMongo(): Promise<Database> {
   const db = await database();
-  try {
-    const all = (name: string) => db.collection<Doc>(name).find().toArray();
-    const [sites, categories, authors, posts, media, auditLog] = await Promise.all([
-      all("sites"),
-      all("categories"),
-      all("authors"),
-      all("posts"),
-      all("media"),
-      db.collection<Doc>("audit").find().sort({ at: -1 }).limit(AUDIT_KEPT_IN_MEMORY).toArray(),
-    ]);
-    return { version: 1, sites: fromDocs(sites), categories: fromDocs(categories), authors: fromDocs(authors), posts: fromDocs(posts), media: fromDocs(media), audit: fromDocs(auditLog) };
-  } catch (err) {
-    throw unavailable(err, "read");
+  const start = performance.now();
+  // Each collection is read on its own, so a failure names the collection it happened in.
+  const all = async (name: string) => {
+    const t = performance.now();
+    debugEvent("database_query_started", { operation: "find", collection: name, db: dbName() });
+    try {
+      const docs = await db.collection<Doc>(name).find().toArray();
+      debugEvent("database_query_completed", { operation: "find", collection: name, db: dbName(), outcome: "success", ms: elapsed(t), count: docs.length });
+      return docs;
+    } catch (err) {
+      throw unavailable(err, "read", elapsed(t), name);
+    }
+  };
+  const [sites, categories, authors, posts, media, auditLog] = await Promise.all([
+    all("sites"),
+    all("categories"),
+    all("authors"),
+    all("posts"),
+    all("media"),
+    db
+      .collection<Doc>("audit")
+      .find()
+      .sort({ at: -1 })
+      .limit(AUDIT_KEPT_IN_MEMORY)
+      .toArray()
+      .catch((err) => {
+        throw unavailable(err, "read", elapsed(start), "audit");
+      }),
+  ]);
+  const raw = { sites, categories, authors, posts, media };
+  const checked = Object.fromEntries(Object.entries(raw).map(([name, docs]) => [name, checkDocs(name, docs)])) as Record<keyof typeof raw, { valid: Doc[]; invalid: number }>;
+  const invalid = Object.fromEntries(Object.entries(checked).filter(([, c]) => c.invalid > 0).map(([name, c]) => [name, c.invalid]));
+  for (const [collection, count] of Object.entries(invalid)) {
+    if (shouldLogFailure(`invalid:${collection}:${count}`)) {
+      logEvent("CMS_DATA", "invalid_documents", { outcome: "rejected", code: "invalid-document", db: dbName(), collection, count, msg: `${count} record(s) in "${collection}" lack fields the CMS needs, so they are left out of what is shown. They are not changed or deleted.` });
+    }
   }
+  lastRead = { ms: elapsed(start), counts: Object.fromEntries(Object.entries(checked).map(([name, c]) => [name, c.valid.length])), invalid };
+  return {
+    version: 1,
+    sites: fromDocs(checked.sites.valid),
+    categories: fromDocs(checked.categories.valid),
+    authors: fromDocs(checked.authors.valid),
+    posts: fromDocs(checked.posts.valid),
+    media: fromDocs(checked.media.valid),
+    audit: fromDocs(auditLog),
+  };
 }
 
 /** What each record looked like before a change, so only the records that really changed are written. */
@@ -187,7 +232,7 @@ export async function saveMongo(after: Database, before: ReturnType<typeof snaps
       await db.collection<Doc>(name).bulkWrite(ops, { ordered: true });
     } catch (err) {
       if (isDuplicateKey(err)) throw new StoreConflictError(name);
-      throw unavailable(err, "write");
+      throw unavailable(err, "write", undefined, name);
     }
   }
   // The activity log only grows. Older entries stay in the database even when they are no longer loaded.
@@ -197,7 +242,7 @@ export async function saveMongo(after: Database, before: ReturnType<typeof snaps
       await db.collection<Doc>("audit").insertMany(added, { ordered: false });
     } catch (err) {
       // The change itself is saved. A missing log line must not turn a successful save into an error.
-      unavailable(err, "activity log write");
+      unavailable(err, "activity log write", undefined, "audit");
     }
   }
 }

@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { articlePath } from "@/cms/lib/content";
 import { HOSTED_SITE_KEY } from "@/cms/lib/routes";
 import type { Site } from "@/cms/lib/types";
+import { logEvent } from "./log";
 import { forgetPublishedSlugs } from "./published-slugs";
 
 /**
@@ -13,10 +14,11 @@ import { forgetPublishedSlugs } from "./published-slugs";
 export function refreshPublicBlog(site: Pick<Site, "key" | "articlePathPattern">, slugs: (string | null | undefined)[] = []) {
   if (site.key !== HOSTED_SITE_KEY) return;
   forgetPublishedSlugs(); // the list of article addresses used by proxy.ts
+  const paths = ["/", "/blog", "/insights", "/sitemap.xml", ...new Set(slugs.filter((s): s is string => Boolean(s)).map((slug) => articlePath(site, slug)))];
   try {
-    for (const path of ["/", "/blog", "/insights", "/sitemap.xml"]) revalidatePath(path);
-    for (const slug of new Set(slugs.filter((s): s is string => Boolean(s)))) revalidatePath(articlePath(site, slug));
+    for (const path of paths) revalidatePath(path);
+    logEvent("CMS_CACHE", "public_pages_revalidated", { outcome: "success", count: paths.length, paths });
   } catch (err) {
-    console.error(`[blog] public pages could not be refreshed: ${(err as Error)?.name ?? "Error"}`);
+    logEvent("CMS_CACHE", "revalidation_failed", { outcome: "failure", code: (err as Error)?.name ?? "Error", paths, msg: `[blog] public pages could not be refreshed: ${(err as Error)?.name ?? "Error"}. They refresh on their own within 10 minutes.` });
   }
 }

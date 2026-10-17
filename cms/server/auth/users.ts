@@ -3,6 +3,7 @@ import type { Db } from "mongodb";
 import { storeKind } from "../store";
 import { StoreUnavailableError } from "../store-errors";
 import { database } from "../store-mongo";
+import { logEvent } from "../log";
 import { mongoFailure } from "../mongo-failure";
 
 /**
@@ -45,9 +46,9 @@ const g = globalThis as typeof globalThis & { [KEY]?: Promise<void> };
 /** Logs only the kind of failure and what to do: driver messages can contain server addresses. */
 export function authUnavailable(err: unknown): StoreUnavailableError {
   if (err instanceof StoreUnavailableError) return err;
-  const f = mongoFailure(err);
-  console.error(`[auth] database request failed (${f.kind}): ${f.advice}. [${f.summary}]`);
-  return new StoreUnavailableError();
+  const f = mongoFailure(err, "account read");
+  logEvent("CMS_DB", "query_failed", { outcome: "failure", code: f.kind, during: "account read", collection: "admin_users/admin_sessions", error: f.summary, msg: `database request failed (${f.kind}): ${f.advice}.` });
+  return new StoreUnavailableError(undefined, "unreachable", f.kind);
 }
 
 /** The database for sign-in records. Sign-in always needs MongoDB, even if articles are kept in a local test file. */

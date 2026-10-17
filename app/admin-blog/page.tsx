@@ -5,7 +5,9 @@ import { EmailLinkButton } from "@/cms/components/auth/email-link-button";
 import { LoginForm } from "@/cms/components/auth/login-form";
 import { envAdmin } from "@/cms/server/auth/env-admin";
 import { getCurrentAdmin, landingPage } from "@/cms/server/auth/guard";
+import { logEvent, requestIdOf } from "@/cms/server/log";
 import { StoreUnavailableError } from "@/cms/server/store-errors";
+import { headers } from "next/headers";
 
 export const metadata: Metadata = { title: "Sign in" };
 
@@ -19,9 +21,19 @@ export default async function SignInPage() {
     if (!(err instanceof StoreUnavailableError)) throw err;
     unavailable = true;
   }
-  if (user) redirect(landingPage(user));
   // With an administrator in the server settings, the email link is the way in; the password form stays available.
   const emailSignIn = envAdmin().state === "ok";
+  logEvent("CMS_AUTH", "login_page_loaded", {
+    rid: requestIdOf(await headers()),
+    route: "/admin-blog",
+    outcome: unavailable ? "failure" : "info",
+    code: user ? "already_signed_in" : unavailable ? "database_unavailable" : "shown",
+    email_sign_in: emailSignIn,
+    // Public configuration, as set or not (never the values).
+    site_address_set: !!process.env.NEXT_PUBLIC_SITE_URL?.trim(),
+    cms_address_set: !!process.env.CMS_PUBLIC_URL?.trim(),
+  });
+  if (user) redirect(landingPage(user));
 
   return (
     <div className="grid min-h-dvh place-items-center bg-mist px-4 py-12">

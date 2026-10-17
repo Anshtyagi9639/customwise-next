@@ -100,11 +100,11 @@ const unitDir = mkdtempSync(path.join(os.tmpdir(), "cms-email-link-"));
   const Log = req("./log.js");
   const fakeToken = "Q".repeat(43);
   Log.logEvent("CMS_AUTH", "token_created", { rid: "abc123def456", attempt: "att000000001", outcome: "success", status: 200, ms: 12, msg: `link https://customswise.ie/admin-blog/auth#${fakeToken} for someone.admin@example.com with re_fake_key_abcdefgh123 and mongodb+srv://user:pw@cluster.example/db and bare ${fakeToken}` });
-  Log.logEvent("CMS_AUTH", "x", { token: fakeToken, cookie_value: "e.abc", session_id: "s", api_key: "re_x", password: "p" });
+  Log.logEvent("CMS_AUTH", "x", { token: fakeToken, cookie_value: "e.abc", session_id: "s", api_key: "re_x", password: "p", during: "read", mongo_uri: "x" });
   Object.assign(console, orig);
   check("log line: UTC ISO time, [CMS_AUTH], the event, rid, env, outcome, status and ms", /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z \[CMS_AUTH\] token_created rid=abc123def456 env=(production|development) outcome=success attempt=att000000001 status=200 ms=12 msg=/.test(lines[0] ?? ""), lines[0]);
   check("log line: a sign-in link, a bare token, an API key, a connection string and a full address are all removed", !lines[0].includes(fakeToken) && !lines[0].includes("re_fake_key") && !lines[0].includes("mongodb+srv") && !lines[0].includes("someone.admin@") && lines[0].includes("[sign-in link]") && lines[0].includes("s••••••••••••@example.com"), lines[0]);
-  check("log line: fields named token, cookie, session id, API key or password are refused whatever they hold", /token=\[refused\]/.test(lines[1]) && /cookie_value=\[refused\]/.test(lines[1]) && /session_id=\[refused\]/.test(lines[1]) && /api_key=\[refused\]/.test(lines[1]) && /password=\[refused\]/.test(lines[1]) && !lines[1].includes(fakeToken), lines[1]);
+  check("log line: fields named token, cookie, session id, API key or password are refused whatever they hold", /token=\[refused\]/.test(lines[1]) && /cookie_value=\[refused\]/.test(lines[1]) && /session_id=\[refused\]/.test(lines[1]) && /api_key=\[refused\]/.test(lines[1]) && /password=\[refused\]/.test(lines[1]) && /mongo_uri=\[refused\]/.test(lines[1]) && /during=read/.test(lines[1]) && !lines[1].includes(fakeToken), lines[1]);
   process.env.NODE_ENV = "production";
   process.env.CMS_PUBLIC_URL = "https://customswise.ie";
   check("production: links use CMS_PUBLIC_URL, never the request's host", L.linkBaseUrl("https://evil.example/admin-blog/api/auth/link") === "https://customswise.ie");
@@ -400,17 +400,18 @@ try {
   check("after a restart, an existing session is still valid", (await http(3334, "/admin-blog/account", { cookie: raceCookie })).status === 200);
 
   console.log("\nStructured log lines ([CMS_AUTH] / [CMS_DB]) and request ids");
-  const logged = (port, event) => logs[port].split(/\r?\n/).filter((l) => l.includes(`[CMS_AUTH] ${event} `) || l.includes(`[CMS_DB] ${event} `));
+  const logged = (port, event) => logs[port].split(/\r?\n/).filter((l) => new RegExp(`\[CMS_[A-Z]+\] ${event} `).test(l));
   const field = (line, name) => line?.match(new RegExp(`\\b${name}=([^\\s]+)`))?.[1];
   const sendR = await send(3338);
   const rid = sendR.data.requestId;
   check("the answer carries a request id, also as the X-Request-Id header", /^[0-9a-f]{12}$/.test(rid ?? "") && sendR.headers.get("x-request-id") === rid);
   const ofRid = logs[3338].split(/\r?\n/).filter((l) => l.includes(`rid=${rid} `));
   const events = ofRid.map((l) => l.split(" ")[2]);
-  check("one send, in order: request_received → email_validation → configuration_check → token_created → token_persisted → email_send_started → email_provider_accepted → request_completed",
-    JSON.stringify(events.filter((e) => ["request_received", "email_validation", "configuration_check", "token_created", "token_persisted", "email_send_started", "email_provider_accepted", "request_completed"].includes(e))) === JSON.stringify(["request_received", "email_validation", "configuration_check", "token_created", "token_persisted", "email_send_started", "email_provider_accepted", "request_completed"]), events.join(","));
-  check("every line: UTC ISO time, env=production, an outcome", ofRid.length > 0 && ofRid.every((l) => /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z \[CMS_AUTH\] \w+ rid=[0-9a-f]{12} env=production outcome=(success|failure|rejected|info)/.test(l)));
-  const acceptedLine = ofRid.find((l) => l.includes(" email_provider_accepted "));
+  const SEND_ORDER = ["request_received", "admin_validation_completed", "validation_started", "validation_completed", "token_created", "token_persisted", "send_started", "provider_accepted", "request_completed"];
+  check(`one send, in order: ${SEND_ORDER.join(" → ")}`, JSON.stringify(events.filter((e) => SEND_ORDER.includes(e))) === JSON.stringify(SEND_ORDER), events.join(","));
+  check("…each under its own scope: [CMS_CONFIG] for the settings, [CMS_EMAIL] for the provider, [CMS_AUTH] for the rest", ofRid.some((l) => / \[CMS_CONFIG\] validation_completed /.test(l)) && ofRid.some((l) => / \[CMS_EMAIL\] provider_accepted /.test(l)) && ofRid.some((l) => / \[CMS_AUTH\] token_persisted /.test(l)));
+  check("every line: UTC ISO time, env=production, an outcome", ofRid.length > 0 && ofRid.every((l) => /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z \[CMS_[A-Z]+\] \w+ rid=[0-9a-f]{12} env=production outcome=(success|failure|rejected|info)/.test(l)));
+  const acceptedLine = ofRid.find((l) => l.includes(" provider_accepted "));
   check("the provider's acceptance: status=200, ms, the provider id, and 'Accepted is not yet delivered'", field(acceptedLine, "status") === "200" && /^\d+$/.test(field(acceptedLine, "ms") ?? "") && field(acceptedLine, "provider_id")?.startsWith("aaaaaaaa-") && /Accepted is not yet delivered/.test(acceptedLine));
   check("the send's duration is logged on completion", /^\d+$/.test(field(ofRid.find((l) => l.includes(" request_completed ")), "ms") ?? ""));
   const attemptId = field(ofRid.find((l) => l.includes(" token_created ")), "attempt");
@@ -423,11 +424,11 @@ try {
   if (process.argv.includes("--show-log")) console.log(["", `    --- log lines of one send (rid ${rid}) and the use of its link (rid ${v.data.requestId}) ---`, ...[...ofRid, ...vLines].map((l) => `    ${l}`), ""].join("\n"));
   check("dashboard_redirect names where the browser goes", /to=\/admin-blog\/sites\/customs-wise/.test(vLines.find((l) => l.includes(" dashboard_redirect ")) ?? ""));
   const again2 = await verify(3338, tokenOf(linkOf(outbox.at(-1))));
-  check("the same link again: token_validation_failed code=already_used, same attempt id", field(logged(3338, "token_validation_failed").find((l) => l.includes(`rid=${again2.data.requestId} `)), "code") === "already_used" && logged(3338, "token_validation_failed").some((l) => l.includes(`rid=${again2.data.requestId} `) && l.includes(`attempt=${attemptId}`)));
+  check("the same link again: token_validation_completed outcome=rejected code=already_used, same attempt id", field(logged(3338, "token_validation_completed").find((l) => l.includes(`rid=${again2.data.requestId} `)), "code") === "already_used" && logged(3338, "token_validation_completed").some((l) => l.includes(`rid=${again2.data.requestId} `) && l.includes(`attempt=${attemptId}`) && /outcome=rejected/.test(l)));
   const made = await verify(3338, "C".repeat(43));
   const bad = await verify(3338, "short");
   const none = await http(3338, "/admin-blog/api/auth/link", { method: "POST", body: { action: "verify" } });
-  const codeOf = (r) => field(logged(3338, "token_validation_failed").find((l) => l.includes(`rid=${r.data.requestId} `)), "code");
+  const codeOf = (r) => field(logged(3338, "token_validation_completed").find((l) => l.includes(`rid=${r.data.requestId} `)), "code");
   check("a token never issued → code=unknown; a wrong shape → malformed; none at all → missing", codeOf(made) === "unknown" && codeOf(bad) === "malformed" && codeOf(none) === "missing", `${codeOf(made)} ${codeOf(bad)} ${codeOf(none)}`);
   check("all of them: 400 with the same message for the person", [made, bad, none].every((r) => r.status === 400 && /expired or has already been used/.test(r.data.message ?? "")));
   const crossSite = await send(3338, { origin: "https://evil.example" });
@@ -439,7 +440,7 @@ try {
   const late = await send(3342);
   mode = "ok";
   check("503 'provider-timeout', and the person is told the email may still arrive", late.status === 503 && late.data.reason === "provider-timeout" && /may still arrive/.test(late.data.message ?? ""), `${late.status} ${late.data.reason}`);
-  check("the log: email_send_failed code=provider-timeout with how long it waited", logged(3342, "email_send_failed").some((l) => /code=provider-timeout/.test(l) && /ms=\d+/.test(l)));
+  check("the log: [CMS_EMAIL] send_failed code=provider-timeout with how long it waited", logged(3342, "send_failed").some((l) => /code=provider-timeout/.test(l) && /ms=\d+/.test(l)));
   check("the email that may have gone out keeps a working link", outbox.length === beforeHang + 1 && (await verify(3342, tokenOf(linkOf(outbox.at(-1))))).status === 200);
 
   console.log("\nSign-in records cannot be written");
@@ -454,7 +455,7 @@ try {
   await send(3346);
   const noSession = await verify(3346, tokenOf(linkOf(outbox.at(-1))));
   check("503 'not available', no session cookie", noSession.status === 503 && !noSession.cookie, `${noSession.status}`);
-  check("the log: token_consumed, then session_create_failed code=auth_store (not a token problem)", logged(3346, "token_consumed").length === 1 && logged(3346, "session_create_failed").some((l) => /code=auth_store/.test(l)) && logged(3346, "token_validation_failed").length === 0);
+  check("the log: token_consumed, then session_create_failed code=auth_store (not a token problem)", logged(3346, "token_consumed").length === 1 && logged(3346, "session_create_failed").some((l) => /code=auth_store/.test(l)) && !logged(3346, "token_validation_completed").some((l) => /outcome=rejected/.test(l)));
 
   console.log("\nThe health check (public: names and statuses only)");
   const sentBeforeHealth = outbox.length;
@@ -480,7 +481,17 @@ try {
   const dash = await http(3331, "/admin-blog/sites/customs-wise", { cookie: dashSession });
   // The message itself ("This screen could not be loaded…", app/admin-blog/error.tsx) is drawn by the browser.
   check("signed in, but the screen cannot load: a server error (500), not the 404 page and not the sign-in page", dash.status === 500 && !toLogin(dash), `${dash.status} ${(dash.text.match(/<h1[^>]*>([^<]*)/) ?? [])[1] ?? ""} ${(dash.text.match(/<title>([^<]*)/) ?? [])[1] ?? ""}`);
-  check("the log: dashboard_load_failed with the screen and the reason", logged(3331, "dashboard_load_failed").some((l) => /screen=site/.test(l) && /code=unreachable/.test(l)));
+  check("the log: [CMS_DATA] dashboard_load_failed with the screen, status 500, the failure kind and reason=unreachable", logged(3331, "dashboard_load_failed").some((l) => / \[CMS_DATA\] /.test(l) && /screen=site/.test(l) && /status=500/.test(l) && /reason=unreachable/.test(l) && /code=(network|timeout|dns|unknown)/.test(l)));
+  const dashRid = dash.headers.get("x-request-id");
+  const dashAttempt = field(logged(3331, "session_created").at(-1), "attempt");
+  const dashLines = logs[3331].split(/\r?\n/).filter((l) => l.includes(`rid=${dashRid} `));
+  check("the dashboard request has one request id across its lines (X-Request-Id), and they carry the login attempt of the email that signed in",
+    /^[0-9a-f]{12}$/.test(dashRid ?? "") && !!dashAttempt &&
+    dashLines.some((l) => / \[CMS_AUTH\] session_validated /.test(l) && l.includes(`attempt=${dashAttempt}`) && /outcome=success/.test(l)) &&
+    dashLines.some((l) => / \[CMS_ROUTE\] admin_page_request /.test(l) && l.includes(`attempt=${dashAttempt}`) && /path=\/admin-blog\/sites\/customs-wise/.test(l)) &&
+    dashLines.some((l) => / \[CMS_DATA\] dashboard_query_started /.test(l) && l.includes(`attempt=${dashAttempt}`)) &&
+    dashLines.some((l) => / \[CMS_DATA\] dashboard_load_failed /.test(l)), dashLines.map((l) => l.split(" ").slice(1, 3).join(" ")).join(" | "));
+  check("the login page logs that it was shown", (await http(3331, "/admin-blog")).status === 200 && logged(3331, "login_page_loaded").some((l) => /code=shown/.test(l)));
 
   console.log("\nThe public blog: database down versus no articles");
   const downList = await http(3344, "/blog");

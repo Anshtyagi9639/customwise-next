@@ -40,6 +40,8 @@ export function EmailLinkButton({ label = "Email me a sign-in link" }: { label?:
       const data = (await res.json().catch(() => ({}))) as { message?: string; retryAfter?: number; requestId?: string };
       // The request id matches the [CMS_AUTH] lines of this request in the server log; shown when something went wrong.
       const ref = res.headers.get("X-Request-Id") ?? data.requestId;
+      // Browser console: the status and the reference only (never an address, a link or a token).
+      (res.ok ? console.info : console.warn)(`[CMS] sign-in email request: HTTP ${res.status}${ref ? `, reference ${ref}` : ""}`);
       setResult({ ok: res.ok, text: data.message ?? (res.ok ? "The request was accepted. Delivery is not confirmed yet." : "No email was sent. Try again shortly."), ...(!res.ok && ref ? { ref } : {}) });
       if (typeof data.retryAfter === "number" && data.retryAfter > 0) {
         const t = Date.now();

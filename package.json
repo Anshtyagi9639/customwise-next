@@ -18,6 +18,7 @@
     "cms:test:users": "node scripts/cms/test-users.mjs",
     "cms:test:env-admin": "node scripts/cms/test-env-admin.mjs",
     "cms:test:email-link": "node scripts/cms/test-email-link.mjs",
+    "cms:test:db": "node scripts/cms/test-db.mjs",
     "cms:relink-images": "node scripts/cms/relink-website-images.mjs",
     "cms:test:live": "node scripts/cms/test-live.mjs"
   },

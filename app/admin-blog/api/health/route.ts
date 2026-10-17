@@ -31,6 +31,12 @@ export async function GET() {
     missing: REQUIRED.filter((n) => !isSet(n)).filter((n) => !(n === "EMAIL_FROM" && isSet("CMS_EMAIL_FROM"))),
     optionalSet: OPTIONAL.filter(isSet),
   };
+  // The database settings as statuses only: never the connection string, a host name or the user.
+  const uri = process.env.MONGODB_URI?.trim().replace(/^(["'])(.*)\1$/, "$2") ?? "";
+  const dbSettings = {
+    connectionString: !uri ? "missing" : uri.startsWith("mongodb+srv://") ? "mongodb+srv" : uri.startsWith("mongodb://") ? "mongodb" : "invalid",
+    databaseIsBlogCms: process.env.MONGODB_DB?.trim().replace(/^(["'])(.*)\1$/, "$2") === "blog_cms",
+  };
   const common = {
     app: "running",
     blogSource,
@@ -43,7 +49,7 @@ export async function GET() {
     await readDb();
     // The website and the CMS are one application sharing one database: the public blog reads the CMS directly.
     const publicBlog = blogSource === "cms" ? "cms" : "built-in (BLOG_SOURCE is not cms)";
-    return json({ ok: true, store: storeKind(), database: { ok: true }, publicBlog, ...common });
+    return json({ ok: true, store: storeKind(), database: { ok: true, ...dbSettings }, publicBlog, ...common });
   } catch (err) {
     const reason = err instanceof StoreUnavailableError ? err.reason : "unreachable";
     const kind = err instanceof StoreUnavailableError ? err.kind : undefined;
@@ -52,6 +58,6 @@ export async function GET() {
         ? "The CMS database settings (MONGODB_URI, MONGODB_DB) are missing or invalid on the server."
         : "The CMS database could not be reached or read.";
     const publicBlog = blogSource === "cms" ? "built-in fallback (the CMS database cannot be read; articles only in the CMS are unavailable)" : "built-in (BLOG_SOURCE is not cms)";
-    return json({ ok: false, reason, message, store: storeKind(), database: { ok: false, reason, ...(kind ? { kind } : {}) }, publicBlog, ...common }, 503);
+    return json({ ok: false, reason, message, store: storeKind(), database: { ok: false, reason, ...(kind ? { kind } : {}), ...dbSettings }, publicBlog, ...common }, 503);
   }
 }

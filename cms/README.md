@@ -49,57 +49,91 @@ With `ADMIN_EMAIL` set, the sign-in page shows one button, **Email me a sign-in 
   - **"Accepted" is not "delivered".** A sending-only API key cannot see what happened next. Check Resend → Emails, or add a full-access key as `RESEND_READ_API_KEY` in `.env` (never in Git). The server then logs the delivery status about 30 seconds after each send, and `npm run cms:email-status -- <id>` shows it on demand.
   - **Resend's test sender (`@resend.dev`) only delivers to the address that owns the Resend account.** For links to reach `ADMIN_EMAIL`, verify the website's domain in Resend (Domains → add `customswise.ie`, then add the DNS records it shows) and set `EMAIL_FROM` to an address on it, for example `Customs Wise CMS <cms@customswise.ie>`.
 
-### Diagnosing sign-in on the live server
+### Diagnosing sign-in and the database on the live server
 
 **Health check:** open `/admin-blog/api/health`. It is public, so it shows names and statuses only, never a value:
 
-- `database`: whether MongoDB answered. If not, `reason` (`not-configured` or `unreachable`) and `kind`, for example `network-access` (add the server's IP in Atlas → Network Access), `authentication` (user name or password in `MONGODB_URI`) or `dns`.
+- `database.ok` and `database.kind`: whether MongoDB answered, and the category if not (see the table below).
 - `settings.missing`: required settings that are not set, by name.
 - `emailSignIn`: whether `ADMIN_EMAIL`, `EMAIL_API_KEY`, the sender and the link address are usable. `sender` says if it is Resend's test sender.
 - `signInStore`: whether sign-in records can be written.
-- `blogSource`.
+- `publicBlog`: where the public blog gets its articles: `cms`, or the built-in fallback.
 
-The health check never sends an email.
+It never sends an email.
 
-**Server log (Hostinger → the Node.js app → Logs):** sign-in and the database write one line per step, in this format:
+**Server log:** Hostinger → the Node.js app → Logs (build logs and runtime logs). One line per step:
 
 ```text
-2026-10-16T13:04:19.546Z [CMS_AUTH] email_provider_accepted rid=7ce6cd42a8ba env=production outcome=success attempt=267d66d6482e status=200 ms=19 provider_id=… msg="…"
+2026-10-17T06:17:47.586Z [CMS_DATA] dashboard_query_completed rid=b5d99fe95a64 env=production outcome=success screen=dashboard ms=39 sites=2 posts=24 …
 ```
 
-- `rid` is one request. It is also returned to the browser and shown as "Reference" when sending fails.
-- `attempt` is one login attempt: the same id appears when the link is emailed and when it is used.
-
-The events of one request, in order:
-
-1. Sending a link: `request_received`, `email_validation`, `configuration_check`, `token_created`, `token_persisted`, `email_send_started`, then `email_provider_accepted` or `email_send_failed` (with `code`), then `request_completed`.
-2. Using a link: `verification_started`, then `token_consumed` or `token_validation_failed`, then `session_created`, `session_cookie_set`, `dashboard_redirect`.
-3. Afterwards: `dashboard_load_failed` (signed in, but the database could not be read), `auth_store_failed` (sign-in records could not be written), and `[CMS_DB] connection_started` / `connection_succeeded` / `connection_failed`. A repeated database failure is logged at most once a minute.
-
-`token_validation_failed` says why a link did not work:
-
-| `code` | Meaning |
+| Prefix | What it covers |
 |---|---|
-| `missing` | No token was sent |
-| `malformed` | The token has the wrong shape |
-| `unknown` | Never issued, or its email was not sent |
-| `already_used` | The link was used before |
-| `replaced` | A newer email was sent |
-| `expired` | Older than 15 minutes |
-| `admin_changed` | `ADMIN_EMAIL` changed since the link was sent |
+| `[CMS_AUTH]` | Sign-in and sessions |
+| `[CMS_EMAIL]` | The email provider |
+| `[CMS_CONFIG]` | Settings |
+| `[CMS_DB]` | The database connection and queries |
+| `[CMS_DATA]` | What the admin screens load (counts only) |
+| `[CMS_ROUTE]` | Admin page and API requests |
+| `[CMS_CACHE]` | Public pages refreshed after publishing |
 
-Accepted is not delivered: `email_provider_accepted` only means Resend took the email. With `RESEND_READ_API_KEY` set, an `email_delivery_status` line follows about 30 seconds later (`delivered`, `bounced`, `suppressed`, `delivery_delayed`, …).
+- `rid` is one request, made by `proxy.ts` and returned as the `X-Request-Id` header. It is shown as "Reference" when sending fails.
+- `attempt` is one login attempt: the same id is on the email send, on the use of its link, and on every later request of the session that link created.
+- A repeated database failure is logged at most once a minute, with the number left out (`suppressed=`). The first one is always logged.
 
-Never logged: tokens, sign-in links, session ids, cookies, API keys, connection strings, passwords, or a full email address (addresses are masked). Every value is screened before it is written.
+**Temporary `[CMS_DEBUG]` lines:** while the dashboard problem is being investigated, each checkpoint is also written as one JSON line:
 
-**Where sign-in records live:** sign-in links and sessions are small files in `CMS_AUTH_DIR`, by default `.cms-data/auth` in the app folder.
+```text
+[CMS_DEBUG] mongodb_connection_started {"ts":"…","event":"mongodb_connection_started","rid":null,"attempt":null,"outcome":"info","db_selected":"blog_cms","db_configured":"blog_cms","matches_expected":true,"connection_string_set":true,"scheme":"mongodb+srv","cluster_label":"blog-cms-cluster","hosts":1,"path_db":"none",…}
+```
 
-- They survive restarts, and every process on the same server shares them.
-- If a deployment replaces the app folder, open sessions and unused links end; signing in again fixes it.
-- To keep them across deployments, set `CMS_AUTH_DIR` to a folder outside the app folder that the Node.js process can write.
-- They are not shared between different machines. If the website ever runs on several machines, they need a shared folder.
+The events, in order:
 
-`CMS_EMAIL_TIMEOUT_MS` (10000 by default) is how long Resend has to answer. After a timeout the link is kept, because the email may still arrive.
+1. Signing in: `login_page_loaded`, `signin_request_received`, `admin_validation_completed`, `email_provider_request_started`, `email_provider_response`.
+2. Opening the link: `magic_link_page_opened`, `magic_link_callback_started`, `token_validation_started`, `token_validation_completed`, `session_created`, `session_cookie_set`, `dashboard_redirect`.
+3. The dashboard: `dashboard_route_requested` (or `login_redirect`), `session_validation_completed`, `dashboard_load_started`, then `database_query_started` / `database_query_completed` once per collection, then `dashboard_load_completed` or `dashboard_load_failed`.
+4. The connection: `mongodb_connection_started`, `mongodb_connection_succeeded` or `mongodb_connection_failed`.
+
+- **Switch them off:** set `CMS_DEBUG=0` in hPanel and restart. No rebuild is needed.
+- **Remove them for good:** delete the `[CMS_DEBUG]` block at the end of `cms/server/log.ts`, the `debugEcho()` call in `logEvent`, the `debugEvent()` calls in `cms/server/store-mongo.ts`, and the `CMS_DEBUG` line in `logRedirect()` in `proxy.ts`. The ordinary `[CMS_…]` lines stay.
+- **What the browser shows:** the browser console only shows `[CMS] sign-in email request: HTTP …, reference …` and `[CMS] sign-in link check: …`. When the dashboard fails, it shows a 500 and a generic React error with no details: the reason is only in the server log.
+
+**Reproducing the dashboard problem safely:**
+
+1. Open `/admin-blog/api/health`. If `database.ok` is false, `database.kind` already names the problem.
+2. Only when you are ready to receive a real email, click "Email me a sign-in link" once. In the log, find `[CMS_EMAIL] provider_accepted` (or `send_failed`) and note its `attempt`.
+3. Open the link. Find `[CMS_AUTH] token_validation_completed`, `token_consumed`, `session_created` and `dashboard_redirect` with the same `attempt`.
+4. On the dashboard request (same `attempt`), find `[CMS_AUTH] session_validated`, `[CMS_ROUTE] admin_page_request` and `[CMS_DATA] dashboard_query_started`, then `dashboard_query_completed` or `dashboard_load_failed`.
+5. If it failed, the `[CMS_DB]` line just before it gives the category (`code=`).
+
+| Log line | Category (`code=`) | What it means | Fix |
+|---|---|---|---|
+| `[CMS_DB] connection_failed` | `network-access` | Atlas ended the TLS handshake with alert 80: this server's IP is not on the access list | Atlas → Network Access: add the server's outgoing IP (from hPanel or Hostinger support), not `0.0.0.0/0` |
+| `[CMS_DB] connection_failed` | `authentication` | User name or password in `MONGODB_URI` rejected | Atlas → Database Access; URL-encode special characters in the password |
+| `[CMS_DB] connection_failed` | `dns` | The cluster address does not resolve | Check the host in `MONGODB_URI` |
+| `[CMS_DB] connection_failed` | `timeout` / `network` | No answer, or refused, reset or unreachable | Cluster paused? Outgoing port 27017 blocked? |
+| `[CMS_DB] connection_failed` | `not-configured` | `MONGODB_URI` or `MONGODB_DB` missing or malformed (`missing=` names it) | Set it in hPanel and restart |
+| `[CMS_DB] query_failed` | `permission` | The user may not use `MONGODB_DB` | Give it readWrite on `blog_cms` |
+| `[CMS_DB] query_failed` | `query-failed` | Connected, but a read or write failed | `collection=` and `error=` say where |
+| `[CMS_DATA] invalid_documents` | `invalid-document` | Records lack required fields; they are hidden, never changed | Fix those records in Atlas |
+| `[CMS_EMAIL] send_failed` | `sender-not-allowed`, `key-rejected`, `provider-timeout`, `unreachable`, … | Resend did not take the email | `msg=` says what to change |
+| `[CMS_AUTH] token_validation_completed outcome=rejected` | `already_used`, `replaced`, `expired`, `unknown`, `malformed`, `missing`, `admin_changed` | The link did not sign in | Ask for a new link |
+| `[CMS_AUTH] session_create_failed` / `auth_store_failed` | `auth_store` / `E…` | Sign-in records could not be written | Check `CMS_AUTH_DIR` |
+| `[CMS_DATA] dashboard_load_failed` | the database category | Signed in, but the screen's data could not be read | Follow the `[CMS_DB]` line before it |
+
+Accepted is not delivered: `[CMS_EMAIL] provider_accepted` only means Resend took the email. With `RESEND_READ_API_KEY` set, `[CMS_EMAIL] delivery_status` follows about 30 seconds later.
+
+Never logged: tokens, sign-in links, session ids, cookies, API keys, connection strings, passwords, record contents, or a full email address (addresses are masked).
+
+**Where sign-in records live:** small files in `CMS_AUTH_DIR`, by default `.cms-data/auth` in the app folder.
+
+- They survive restarts, and every process on the server shares them.
+- A deployment that replaces the app folder ends open sessions; signing in again fixes it. Set `CMS_AUTH_DIR` to a writable folder outside the app folder to keep them.
+- They are not shared between different machines.
+
+`CMS_EMAIL_TIMEOUT_MS` (10000 by default) is how long Resend has to answer; after a timeout the link is kept, because the email may still arrive.
+
+**Tests:** `npm run cms:test:db` covers the database layer: failure categories, the correct database and collections, broken records, publishing refreshes and drafts. It needs the local test database (`npm run mongo:local` in `../customs-wise-blog-cms-local`) and refuses any database that is not on this computer or is named `blog_cms`.
 
 ### Getting sign-in emails into the Inbox (not Spam)
 
