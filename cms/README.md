@@ -49,6 +49,58 @@ With `ADMIN_EMAIL` set, the sign-in page shows one button, **Email me a sign-in 
   - **"Accepted" is not "delivered".** A sending-only API key cannot see what happened next. Check Resend → Emails, or add a full-access key as `RESEND_READ_API_KEY` in `.env` (never in Git). The server then logs the delivery status about 30 seconds after each send, and `npm run cms:email-status -- <id>` shows it on demand.
   - **Resend's test sender (`@resend.dev`) only delivers to the address that owns the Resend account.** For links to reach `ADMIN_EMAIL`, verify the website's domain in Resend (Domains → add `customswise.ie`, then add the DNS records it shows) and set `EMAIL_FROM` to an address on it, for example `Customs Wise CMS <cms@customswise.ie>`.
 
+### Diagnosing sign-in on the live server
+
+**Health check:** open `/admin-blog/api/health`. It is public, so it shows names and statuses only, never a value:
+
+- `database`: whether MongoDB answered. If not, `reason` (`not-configured` or `unreachable`) and `kind`, for example `network-access` (add the server's IP in Atlas → Network Access), `authentication` (user name or password in `MONGODB_URI`) or `dns`.
+- `settings.missing`: required settings that are not set, by name.
+- `emailSignIn`: whether `ADMIN_EMAIL`, `EMAIL_API_KEY`, the sender and the link address are usable. `sender` says if it is Resend's test sender.
+- `signInStore`: whether sign-in records can be written.
+- `blogSource`.
+
+The health check never sends an email.
+
+**Server log (Hostinger → the Node.js app → Logs):** sign-in and the database write one line per step, in this format:
+
+```text
+2026-10-16T13:04:19.546Z [CMS_AUTH] email_provider_accepted rid=7ce6cd42a8ba env=production outcome=success attempt=267d66d6482e status=200 ms=19 provider_id=… msg="…"
+```
+
+- `rid` is one request. It is also returned to the browser and shown as "Reference" when sending fails.
+- `attempt` is one login attempt: the same id appears when the link is emailed and when it is used.
+
+The events of one request, in order:
+
+1. Sending a link: `request_received`, `email_validation`, `configuration_check`, `token_created`, `token_persisted`, `email_send_started`, then `email_provider_accepted` or `email_send_failed` (with `code`), then `request_completed`.
+2. Using a link: `verification_started`, then `token_consumed` or `token_validation_failed`, then `session_created`, `session_cookie_set`, `dashboard_redirect`.
+3. Afterwards: `dashboard_load_failed` (signed in, but the database could not be read), `auth_store_failed` (sign-in records could not be written), and `[CMS_DB] connection_started` / `connection_succeeded` / `connection_failed`. A repeated database failure is logged at most once a minute.
+
+`token_validation_failed` says why a link did not work:
+
+| `code` | Meaning |
+|---|---|
+| `missing` | No token was sent |
+| `malformed` | The token has the wrong shape |
+| `unknown` | Never issued, or its email was not sent |
+| `already_used` | The link was used before |
+| `replaced` | A newer email was sent |
+| `expired` | Older than 15 minutes |
+| `admin_changed` | `ADMIN_EMAIL` changed since the link was sent |
+
+Accepted is not delivered: `email_provider_accepted` only means Resend took the email. With `RESEND_READ_API_KEY` set, an `email_delivery_status` line follows about 30 seconds later (`delivered`, `bounced`, `suppressed`, `delivery_delayed`, …).
+
+Never logged: tokens, sign-in links, session ids, cookies, API keys, connection strings, passwords, or a full email address (addresses are masked). Every value is screened before it is written.
+
+**Where sign-in records live:** sign-in links and sessions are small files in `CMS_AUTH_DIR`, by default `.cms-data/auth` in the app folder.
+
+- They survive restarts, and every process on the same server shares them.
+- If a deployment replaces the app folder, open sessions and unused links end; signing in again fixes it.
+- To keep them across deployments, set `CMS_AUTH_DIR` to a folder outside the app folder that the Node.js process can write.
+- They are not shared between different machines. If the website ever runs on several machines, they need a shared folder.
+
+`CMS_EMAIL_TIMEOUT_MS` (10000 by default) is how long Resend has to answer. After a timeout the link is kept, because the email may still arrive.
+
 ### Getting sign-in emails into the Inbox (not Spam)
 
 What is known (checked on 16 October 2026):

@@ -3,6 +3,7 @@ import { type AnyBulkWriteOperation, type Db, MongoClient } from "mongodb";
 import { seedDatabase } from "./seed";
 import type { Database } from "./store";
 import { StoreConflictError, StoreUnavailableError } from "./store-errors";
+import { elapsed, logEvent } from "./log";
 import { mongoFailure } from "./mongo-failure";
 
 /**
@@ -49,9 +50,9 @@ let lastConfigLog = 0;
 function notConfigured(reason: string): never {
   if (Date.now() - lastConfigLog > 60_000) {
     lastConfigLog = Date.now();
-    console.error(`[store] MongoDB is not configured on this server: ${reason}`);
+    logEvent("CMS_DB", "connection_failed", { outcome: "failure", code: "not_configured", msg: `MongoDB is not configured on this server: ${reason}` });
   }
-  throw new StoreUnavailableError(`The CMS database is not configured: ${reason}`, "not-configured");
+  throw new StoreUnavailableError(`The CMS database is not configured: ${reason}`, "not-configured", "not-configured");
 }
 
 function config(): { uri: string; name: string } {
@@ -65,12 +66,35 @@ function config(): { uri: string; name: string } {
 }
 
 /** Logs what kind of failure happened and what to do, and nothing else: driver messages can contain host names. */
-function unavailable(err: unknown, during: string): StoreUnavailableError {
+function unavailable(err: unknown, during: string, ms?: number): StoreUnavailableError {
   if (err instanceof StoreUnavailableError) return err;
   const f = mongoFailure(err);
-  console.error(`[store] MongoDB ${during} failed (${f.kind}): ${f.advice}. [${f.summary}]`);
-  return new StoreUnavailableError();
+  if (shouldLogFailure(`${during}:${f.kind}`)) {
+    logEvent("CMS_DB", during === "connection" ? "connection_failed" : "query_failed", { outcome: "failure", ms, code: f.kind, during, error: f.summary, suppressed: takeSuppressed(), msg: `MongoDB ${during} failed (${f.kind}): ${f.advice}.` });
+  }
+  return new StoreUnavailableError(undefined, "unreachable", f.kind);
 }
+
+/*
+ * While the database is down every request retries the connection; the same failure is logged at most once a minute
+ * (with the number of repeats left out), so an outage does not flood the log.
+ */
+let lastFailure = { key: "", at: 0 };
+let suppressed = 0;
+function shouldLogFailure(key: string): boolean {
+  if (key === lastFailure.key && Date.now() - lastFailure.at < 60_000) {
+    suppressed++;
+    return false;
+  }
+  lastFailure = { key, at: Date.now() };
+  return true;
+}
+function takeSuppressed(): number | undefined {
+  const n = suppressed;
+  suppressed = 0;
+  return n || undefined;
+}
+const quietRetry = () => lastFailure.key.startsWith("connection:") && Date.now() - lastFailure.at < 60_000;
 
 const isDuplicateKey = (err: unknown) => (err as { code?: unknown })?.code === 11000;
 
@@ -81,15 +105,19 @@ const g = globalThis as typeof globalThis & { [KEY]?: Promise<Db> };
 async function open(): Promise<Db> {
   const { uri, name } = config();
   const client = new MongoClient(uri, { appName: "multi-site-blog-cms", maxPoolSize: 10, serverSelectionTimeoutMS: 8000, ignoreUndefined: true });
+  const start = performance.now();
+  if (!quietRetry()) logEvent("CMS_DB", "connection_started", { db: name, srv: uri.startsWith("mongodb+srv://") });
   try {
     await client.connect();
     const db = client.db(name);
     for (const index of INDEXES) await db.collection(index.collection).createIndex(index.keys, { unique: index.unique ?? false, name: index.name, ...(index.onlyWhere ? { partialFilterExpression: index.onlyWhere } : {}) });
     await seedIfEmpty(db);
+    logEvent("CMS_DB", "connection_succeeded", { outcome: "success", ms: elapsed(start), db: name });
+    lastFailure = { key: "", at: 0 };
     return db;
   } catch (err) {
     await client.close().catch(() => undefined);
-    throw unavailable(err, "connection");
+    throw unavailable(err, "connection", elapsed(start));
   }
 }
 

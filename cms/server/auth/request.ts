@@ -2,9 +2,15 @@ import "server-only";
 
 /** Facts about an incoming request that the sign-in code needs. */
 
-/** The client's IP as reported by the hosting proxy. Used for rate limiting only, never trusted for anything else. */
+/**
+ * The client's IP as reported by the hosting proxy. Used for rate limiting only, never trusted for anything else.
+ * The LAST X-Forwarded-For entry is used: it is the one added by the proxy in front of Node.js (LiteSpeed on
+ * Hostinger), while earlier entries are whatever the client chose to send, so a client cannot pick a fresh address to
+ * escape the per-address limit. The limits that cover everyone (10 link emails per 15 minutes, the pause between
+ * emails) do not depend on it at all.
+ */
 export function clientIp(request: Request): string {
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim();
   const ip = forwarded || request.headers.get("x-real-ip")?.trim() || "unknown";
   return ip.replace(/[^0-9a-fA-F:.]/g, "").slice(0, 64) || "unknown";
 }

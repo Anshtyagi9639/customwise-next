@@ -25,10 +25,10 @@ console.log("In-memory sessions and rate limit (fake clock)");
 const unitDir = mkdtempSync(path.join(os.tmpdir(), "cms-env-admin-"));
 {
   const ts = require("typescript");
-  const files = { "auth-shared": "cms/lib/auth-shared.ts", "env-admin": "cms/server/auth/env-admin.ts", "env-sessions": "cms/server/auth/env-sessions.ts", "file-store": "cms/server/auth/file-store.ts", password: "cms/server/auth/password.ts", throttle: "cms/server/auth/throttle.ts" };
+  const files = { "auth-shared": "cms/lib/auth-shared.ts", "env-admin": "cms/server/auth/env-admin.ts", "env-sessions": "cms/server/auth/env-sessions.ts", "file-store": "cms/server/auth/file-store.ts", password: "cms/server/auth/password.ts", throttle: "cms/server/auth/throttle.ts", log: "cms/server/log.ts" };
   process.env.CMS_AUTH_DIR = path.join(unitDir, "records");
   for (const [name, file] of Object.entries(files)) {
-    let src = readFileSync(file, "utf8").replace(/import "server-only";\n/, "").replace(/"@\/cms\/lib\/auth-shared"/g, '"./auth-shared"');
+    let src = readFileSync(file, "utf8").replace(/import "server-only";\n/, "").replace(/"@\/cms\/lib\/auth-shared"/g, '"./auth-shared"').replace(/"\.\.\/log"/g, '"./log"');
     // No database in this test: the database-backed half of throttle.ts must never be reached.
     if (name === "throttle") src = src.replace(/import \{ authDb, authUnavailable \} from "\.\/users";/, "const authDb = async () => { throw new Error('the database was used'); }; const authUnavailable = (e) => e;");
     const js = ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText.replace(/require\("\.\/users"\)/g, "({})");

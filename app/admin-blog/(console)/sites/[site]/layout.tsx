@@ -5,14 +5,14 @@ import { BlogSourceNote, blogShowsCms } from "@/cms/components/admin/blog-source
 import { HOSTED_SITE_KEY, publicUrl } from "@/cms/lib/routes";
 import { requireAdminPage } from "@/cms/server/auth/guard";
 import { canAccessSite } from "@/cms/server/auth/users";
-import { readDb } from "@/cms/server/store";
+import { readDbForScreen } from "@/cms/server/admin-data";
 import { enabledSites, findSite } from "@/cms/server/sites";
 
 /** The screens of one website: the website switcher and its menu on the left. */
 export default async function SiteLayout({ children, params }: { children: React.ReactNode; params: Promise<{ site: string }> }) {
   const { site: key } = await params;
   const user = await requireAdminPage({ siteKey: key });
-  const db = await readDb();
+  const db = await readDbForScreen("site");
   const site = findSite(db, key);
   if (!site) notFound();
   const listing = publicUrl(site, site.listingPath);

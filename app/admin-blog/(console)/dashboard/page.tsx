@@ -5,7 +5,7 @@ import { displayStatus, formatDateTime } from "@/cms/lib/content";
 import { HOSTED_SITE_KEY, adminUrl } from "@/cms/lib/routes";
 import { requireAdminPage } from "@/cms/server/auth/guard";
 import { canAccessSite } from "@/cms/server/auth/users";
-import { readDb } from "@/cms/server/store";
+import { readDbForScreen } from "@/cms/server/admin-data";
 import { enabledSites } from "@/cms/server/sites";
 
 export const metadata: Metadata = { title: "Dashboard" };
@@ -13,7 +13,7 @@ export const metadata: Metadata = { title: "Dashboard" };
 /** /admin-blog/dashboard: every website this account manages, with its drafts, scheduled and published articles. */
 export default async function DashboardPage() {
   const user = await requireAdminPage();
-  const db = await readDb();
+  const db = await readDbForScreen("dashboard");
   const sites = enabledSites(db).filter((s) => canAccessSite(user, s.key));
   const blogSource = process.env.BLOG_SOURCE?.trim().toLowerCase() === "cms" ? "cms" : "static";
   const siteIds = new Set(sites.map((s) => s.id));

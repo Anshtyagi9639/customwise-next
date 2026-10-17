@@ -15,7 +15,7 @@ const noSubscription = () => () => {};
 export function EmailLinkButton({ label = "Email me a sign-in link" }: { label?: string }) {
   const ready = useSyncExternalStore(noSubscription, () => true, () => false);
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const [result, setResult] = useState<{ ok: boolean; text: string; ref?: string } | null>(null);
   const [waitUntil, setWaitUntil] = useState(0);
   const [now, setNow] = useState(0);
 
@@ -37,8 +37,10 @@ export function EmailLinkButton({ label = "Email me a sign-in link" }: { label?:
     setResult(null);
     try {
       const res = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "send" }), credentials: "same-origin" });
-      const data = (await res.json().catch(() => ({}))) as { message?: string; retryAfter?: number };
-      setResult({ ok: res.ok, text: data.message ?? (res.ok ? "The request was accepted. Delivery is not confirmed yet." : "No email was sent. Try again shortly.") });
+      const data = (await res.json().catch(() => ({}))) as { message?: string; retryAfter?: number; requestId?: string };
+      // The request id matches the [CMS_AUTH] lines of this request in the server log; shown when something went wrong.
+      const ref = res.headers.get("X-Request-Id") ?? data.requestId;
+      setResult({ ok: res.ok, text: data.message ?? (res.ok ? "The request was accepted. Delivery is not confirmed yet." : "No email was sent. Try again shortly."), ...(!res.ok && ref ? { ref } : {}) });
       if (typeof data.retryAfter === "number" && data.retryAfter > 0) {
         const t = Date.now();
         setNow(t);
@@ -64,6 +66,11 @@ export function EmailLinkButton({ label = "Email me a sign-in link" }: { label?:
           data-testid="email-link-result"
         >
           {result.text}
+          {result.ref && (
+            <span className="mt-1 block text-[0.8rem] font-normal text-pebble" data-testid="email-link-ref">
+              Reference: {result.ref}
+            </span>
+          )}
         </p>
       )}
     </div>

@@ -1,7 +1,10 @@
 import "server-only";
 import { createHash, randomBytes } from "node:crypto";
+import { elapsed, logEvent, maskEmail } from "../log";
 import { type EnvAdmin, envAdmin } from "./env-admin";
-import { listRecords, putRecord, removeRecord, takeRecord } from "./file-store";
+import { getRecord, listRecords, putRecord, removeRecord, takeRecord } from "./file-store";
+
+export { maskEmail };
 
 /**
  * Sign-in by email link, for the administrator from the server settings (ADMIN_EMAIL) only. Nobody types an address:
@@ -16,7 +19,14 @@ import { listRecords, putRecord, removeRecord, takeRecord } from "./file-store";
 export const LINK_LIFETIME_MS = 15 * 60 * 1000;
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
-type PendingLink = { email: string; expiresAt: number };
+/** attempt: a random id shared by the log lines of one login attempt (the send and the later use of its link). */
+type PendingLink = { email: string; expiresAt: number; attempt?: string };
+/**
+ * What happened to a link that can no longer be used, kept for a day under the same hashed name, only so that the log
+ * can say "already used", "replaced" or "expired" instead of "unknown". It never makes a link usable again.
+ */
+type SpentLink = { why: "used" | "replaced" | "expired"; until: number; attempt?: string };
+const SPENT_KEPT_MS = 24 * 60 * 60 * 1000;
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 
 /**
@@ -47,7 +57,7 @@ const isLocalHost = (host: string) => host === "localhost" || host.endsWith(".lo
 
 const warned = new Set<string>();
 function warnOnce(message: string) {
-  if (!warned.has(message)) console.warn(message);
+  if (!warned.has(message)) logEvent("CMS_AUTH", "configuration_warning", { outcome: "rejected", msg: message });
   warned.add(message);
 }
 
@@ -110,20 +120,34 @@ export function buildLinkEmail(link: string, now = new Date(), refId = randomByt
 }
 
 /** A new single-use link token for the configured administrator. Earlier unused links stop working. */
-export function issueLinkToken(env: Extract<EnvAdmin, { state: "ok" }>, now = Date.now()): string {
-  for (const { id, value } of listRecords<PendingLink>("link")) if (value.expiresAt <= now) removeRecord("link", id);
+export function issueLinkToken(env: Extract<EnvAdmin, { state: "ok" }>, now = Date.now(), attempt?: string): string {
+  for (const { id, value } of listRecords<PendingLink>("link")) if (value.expiresAt <= now) retire(id, "expired", value.attempt, now);
+  for (const { id, value } of listRecords<SpentLink>("spent")) if (value.until <= now) removeRecord("spent", id);
   const token = randomBytes(32).toString("base64url");
-  putRecord("link", sha256(token), { email: env.email, expiresAt: now + LINK_LIFETIME_MS } satisfies PendingLink);
+  putRecord("link", sha256(token), { email: env.email, expiresAt: now + LINK_LIFETIME_MS, ...(attempt ? { attempt } : {}) } satisfies PendingLink);
   return token;
+}
+
+/** Removes a link record and notes why (see SpentLink). */
+function retire(id: string, why: SpentLink["why"], attempt: string | undefined, now: number) {
+  removeRecord("link", id);
+  putRecord("spent", id, { why, until: now + SPENT_KEPT_MS, ...(attempt ? { attempt } : {}) } satisfies SpentLink);
 }
 
 /**
  * After the provider accepted the email with this token: every older link of the same address stops working, so only
  * the newest email's link works. Not done before, so a send that fails never cancels a link already in the inbox.
  */
-export function keepOnlyNewestLink(env: Extract<EnvAdmin, { state: "ok" }>, token: string): void {
+export function keepOnlyNewestLink(env: Extract<EnvAdmin, { state: "ok" }>, token: string, now = Date.now()): number {
   const keep = sha256(token);
-  for (const { id, value } of listRecords<PendingLink>("link")) if (id !== keep && value.email === env.email) removeRecord("link", id);
+  let cancelled = 0;
+  for (const { id, value } of listRecords<PendingLink>("link")) {
+    if (id !== keep && value.email === env.email) {
+      retire(id, "replaced", value.attempt, now);
+      cancelled++;
+    }
+  }
+  return cancelled;
 }
 
 /** The email with this token was not sent: the token must not work. */
@@ -147,26 +171,48 @@ export function secondsSinceLastLink(env: Extract<EnvAdmin, { state: "ok" }>, no
  * administrator's settings, or null.
  */
 export function redeemLinkToken(token: string, now = Date.now()): Extract<EnvAdmin, { state: "ok" }> | null {
-  if (!TOKEN_PATTERN.test(token)) return null;
-  // Single use, across every process: only one caller can take the record, even at the same moment.
-  const link = takeRecord<PendingLink>("link", sha256(token));
-  if (!link) return null;
-  const env = envAdmin();
-  if (link.expiresAt <= now || env.state !== "ok" || env.email !== link.email) return null;
-  return env;
+  const result = consumeLinkToken(token, now);
+  return result.ok ? result.env : null;
 }
 
-/** "c•••••••••@gmail.com": enough to recognise the inbox, not enough to learn the address. */
-export function maskEmail(email: string): string {
-  const [local, domain] = email.split("@");
-  return `${local.slice(0, 1)}${"•".repeat(Math.max(3, local.length - 1))}@${domain}`;
+/**
+ * Why a link did not sign anyone in, for the server log only (the person always sees the same message):
+ * missing (no token), malformed, unknown (never issued, or cancelled because its email was not sent), already_used,
+ * replaced (a newer email was sent), expired, admin_changed (ADMIN_EMAIL changed since it was sent).
+ */
+export type LinkRefusal = "missing" | "malformed" | "unknown" | "already_used" | "replaced" | "expired" | "admin_changed";
+
+/** redeemLinkToken, with the reason when it fails and the login attempt it belongs to. */
+export function consumeLinkToken(token: unknown, now = Date.now()): { ok: true; env: Extract<EnvAdmin, { state: "ok" }>; attempt?: string } | { ok: false; reason: LinkRefusal; attempt?: string } {
+  if (typeof token !== "string" || token === "") return { ok: false, reason: "missing" };
+  if (!TOKEN_PATTERN.test(token)) return { ok: false, reason: "malformed" };
+  const id = sha256(token);
+  // Single use, across every process: only one caller can take the record, even at the same moment.
+  const link = takeRecord<PendingLink>("link", id);
+  if (!link) {
+    const spent = getRecord<SpentLink>("spent", id);
+    if (!spent || spent.until <= now) return { ok: false, reason: "unknown" };
+    return { ok: false, reason: spent.why === "used" ? "already_used" : spent.why, attempt: spent.attempt };
+  }
+  if (link.expiresAt <= now) {
+    putRecord("spent", id, { why: "expired", until: now + SPENT_KEPT_MS, attempt: link.attempt } satisfies SpentLink);
+    return { ok: false, reason: "expired", attempt: link.attempt };
+  }
+  const env = envAdmin();
+  if (env.state !== "ok" || env.email !== link.email) return { ok: false, reason: "admin_changed", attempt: link.attempt };
+  putRecord("spent", id, { why: "used", until: now + SPENT_KEPT_MS, attempt: link.attempt } satisfies SpentLink);
+  return { ok: true, env, attempt: link.attempt };
 }
 
 const escapeHtml = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 /** Why an email was not sent, for the person at the sign-in page (no detail) and for the server log (detail). */
-export type SendFailure = "not-configured" | "sender-not-allowed" | "key-rejected" | "provider-rate-limited" | "provider-error" | "unreachable";
+/** provider-timeout: Resend did not answer in time, so the email MAY still have been sent (its link is kept). */
+export type SendFailure = "not-configured" | "sender-not-allowed" | "key-rejected" | "provider-rate-limited" | "provider-error" | "provider-timeout" | "unreachable";
 export type SendOutcome = { sent: true; id: string | null } | { sent: false; reason: SendFailure };
+
+/** How long Resend has to answer (CMS_EMAIL_TIMEOUT_MS, 10 seconds by default, at least 1 second). */
+const SEND_TIMEOUT_MS = Number(process.env.CMS_EMAIL_TIMEOUT_MS) >= 1000 ? Number(process.env.CMS_EMAIL_TIMEOUT_MS) : 10_000;
 
 /** Resend's endpoint for sending; EMAIL_API_URL replaces it (tests point it at a fake provider on this computer). */
 const sendEndpoint = () => (process.env.EMAIL_API_URL?.trim() || "https://api.resend.com/emails").replace(/\/+$/, "");
@@ -186,39 +232,50 @@ function classifyRefusal(status: number, detail: string): { reason: SendFailure;
 }
 
 
-/** Sends the link email. Logs only that it was sent or why not: never the link, the token or the API key. */
-export async function sendLinkEmail(to: string, link: string): Promise<SendOutcome> {
+/**
+ * Sends the link email. Logs only that it was sent or why not: never the link, the token or the API key. `rid` and
+ * `attempt` tie the log lines to the request and to the later use of the link.
+ */
+export async function sendLinkEmail(to: string, link: string, ids: { rid?: string; attempt?: string } = {}): Promise<SendOutcome> {
+  const { rid, attempt } = ids;
   const apiKey = process.env.EMAIL_API_KEY?.trim();
   const sender = signInSender();
   if (!apiKey || !sender) {
     const missing = [!apiKey && "EMAIL_API_KEY", !sender && (process.env.CMS_EMAIL_FROM?.trim() || process.env.EMAIL_FROM?.trim() ? "a valid sender (CMS_EMAIL_FROM or EMAIL_FROM, as Name <address>)" : "EMAIL_FROM")].filter(Boolean).join(" and ");
-    console.error(`[auth] Email sign-in is not set up: missing ${missing}. No email was sent.`);
+    logEvent("CMS_AUTH", "email_send_failed", { rid, attempt, outcome: "failure", code: "not_configured", msg: `Email sign-in is not set up: missing ${missing}. No email was sent.` });
     return { sent: false, reason: "not-configured" };
   }
   const email = buildLinkEmail(link);
+  const start = performance.now();
+  logEvent("CMS_AUTH", "email_send_started", { rid, attempt, provider: "resend", to: maskEmail(to), sender_domain: sender.domain });
   try {
     const res = await fetch(sendEndpoint(), {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({ from: sender.from, to: [to], subject: email.subject, text: email.text, html: email.html, headers: email.headers }),
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
       cache: "no-store",
     });
     if (!res.ok) {
       // The provider's answer says why. It contains no secret of ours; addresses in it are masked.
       const detail = maskAddresses((await res.text().catch(() => "")).slice(0, 300));
       const refusal = classifyRefusal(res.status, detail);
-      console.error(`[auth] Sign-in email NOT sent: Resend refused it (${res.status}, ${refusal.reason}). ${refusal.log} Resend said: ${detail}`);
+      logEvent("CMS_AUTH", "email_send_failed", { rid, attempt, outcome: "failure", status: res.status, ms: elapsed(start), code: refusal.reason, msg: `Sign-in email NOT sent: Resend refused it (${res.status}, ${refusal.reason}). ${refusal.log} Resend said: ${detail}` });
       return { sent: false, reason: refusal.reason };
     }
     // The provider's id lets the email be found in its logs (Resend → Emails). It is not a secret.
     const raw = ((await res.json().catch(() => ({}))) as { id?: unknown }).id;
     const id = typeof raw === "string" && /^[A-Za-z0-9-]{8,80}$/.test(raw) ? raw : null;
-    console.info(`[auth] Sign-in email to ${maskEmail(to)} ACCEPTED by Resend${id ? ` (id ${id})` : ""}. Accepted is not yet delivered.`);
-    if (id) logDeliveryLater(id);
+    logEvent("CMS_AUTH", "email_provider_accepted", { rid, attempt, outcome: "success", status: res.status, ms: elapsed(start), provider_id: id ?? "none", msg: `Sign-in email to ${maskEmail(to)} ACCEPTED by Resend${id ? ` (id ${id})` : ""}. Accepted is not yet delivered.` });
+    if (id) logDeliveryLater(id, attempt);
     return { sent: true, id };
   } catch (err) {
-    console.error(`[auth] Sign-in email NOT sent: Resend could not be reached (${(err as Error)?.name ?? "Error"}).`);
+    const name = (err as Error)?.name ?? "Error";
+    if (name === "TimeoutError") {
+      logEvent("CMS_AUTH", "email_send_failed", { rid, attempt, outcome: "failure", ms: elapsed(start), code: "provider-timeout", msg: `Resend did not answer within ${SEND_TIMEOUT_MS} ms. The email may or may not have been sent; its link is kept, so it works if it arrives.` });
+      return { sent: false, reason: "provider-timeout" };
+    }
+    logEvent("CMS_AUTH", "email_send_failed", { rid, attempt, outcome: "failure", ms: elapsed(start), code: "unreachable", msg: `Sign-in email NOT sent: Resend could not be reached (${name}).` });
     return { sent: false, reason: "unreachable" };
   }
 }
@@ -257,15 +314,20 @@ export async function deliveryStatus(id: string, key: string): Promise<{ ok: tru
  * about 30 seconds later what happened to it and logs the answer. It only reads; it never sends again. Without the
  * key, it says how to check. Logs only the status, never the email, the link or the key.
  */
-function logDeliveryLater(id: string): void {
+function logDeliveryLater(id: string, attempt?: string): void {
   const key = process.env.RESEND_READ_API_KEY?.trim();
   if (!key) {
-    console.info(`[auth] Delivery not confirmed. To check it: Resend → Emails, or set RESEND_READ_API_KEY and run npm run cms:email-status -- ${id}`);
+    logEvent("CMS_AUTH", "email_delivery_unconfirmed", { attempt, provider_id: id, msg: `Delivery not confirmed. To check it: Resend → Emails, or set RESEND_READ_API_KEY and run npm run cms:email-status -- ${id}` });
     return;
   }
   setTimeout(async () => {
     const status = await deliveryStatus(id, key);
-    console.info(status.ok ? `[auth] Delivery status of sign-in email ${id}: ${status.event} - ${DELIVERY_MEANING[status.event] ?? "see Resend → Emails"}` : `[auth] Delivery status of sign-in email ${id} unknown: ${status.why}`);
+    if (!status.ok) {
+      logEvent("CMS_AUTH", "email_delivery_status", { attempt, provider_id: id, code: "unknown", msg: `Delivery status of sign-in email ${id} unknown: ${status.why}` });
+      return;
+    }
+    const bad = ["bounced", "suppressed", "failed", "complained", "canceled"].includes(status.event);
+    logEvent("CMS_AUTH", "email_delivery_status", { attempt, provider_id: id, outcome: status.event === "delivered" ? "success" : bad ? "failure" : "info", code: status.event, msg: `Delivery status of sign-in email ${id}: ${status.event} - ${DELIVERY_MEANING[status.event] ?? "see Resend → Emails"}` });
   }, DELIVERY_CHECK_DELAY_MS).unref?.();
 }
 

@@ -1,14 +1,17 @@
 // Sign-in by email link, end to end, WITHOUT SENDING ANY REAL EMAIL and without a database:
-//   npm run cms:test:email-link        (after `npm run build`)
+//   npm run cms:test:email-link                   (after `npm run build`)
+//   npm run cms:test:email-link -- --show-log     also prints the log lines of one send and the use of its link
 // A fake email provider on this computer stands in for Resend (EMAIL_API_URL, which every server here gets) and
 // captures each email; the test takes the link out of it as a mail client would. It can also act out each way Resend
 // may answer (refusals, its own rate limit, an outage) and answer delivery-status look-ups. The production build runs on
 // ports 3331-3338 with MongoDB unreachable. The test stops before starting anything if the provider is not local.
 // 1. Unit: link lifetime, single use, which links a new email cancels, the pause between emails (fake clock).
-// 2. HTTP: sending, opening the link, the session, reuse, forged Host headers, limits, every kind of provider failure,
-//    missing settings, two processes sharing records, delivery-status look-ups (server log and npm run cms:email-status).
+// 2. HTTP: sending, opening the link, the session, reuse, forged Host headers, limits, every kind of provider failure
+//    (including a timeout), missing settings, an unwritable sign-in folder, two processes sharing records, the
+//    structured [CMS_AUTH] / [CMS_DB] log lines, the health check, the public blog with the database down or empty,
+//    delivery-status look-ups (server log and npm run cms:email-status).
 import { execFile, spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -27,9 +30,9 @@ console.log("Links (fake clock)");
 const unitDir = mkdtempSync(path.join(os.tmpdir(), "cms-email-link-"));
 {
   const ts = require("typescript");
-  const files = { "env-admin": "cms/server/auth/env-admin.ts", "email-link": "cms/server/auth/email-link.ts", "file-store": "cms/server/auth/file-store.ts", password: "cms/server/auth/password.ts", "auth-shared": "cms/lib/auth-shared.ts" };
+  const files = { "env-admin": "cms/server/auth/env-admin.ts", "email-link": "cms/server/auth/email-link.ts", "file-store": "cms/server/auth/file-store.ts", password: "cms/server/auth/password.ts", "auth-shared": "cms/lib/auth-shared.ts", log: "cms/server/log.ts" };
   for (const [name, file] of Object.entries(files)) {
-    const src = readFileSync(file, "utf8").replace(/import "server-only";\n/, "").replace(/"@\/cms\/lib\/auth-shared"/g, '"./auth-shared"');
+    const src = readFileSync(file, "utf8").replace(/import "server-only";\n/, "").replace(/"@\/cms\/lib\/auth-shared"/g, '"./auth-shared"').replace(/"\.\.\/log"/g, '"./log"');
     writeFileSync(path.join(unitDir, `${name}.js`), ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText);
   }
   const req = createRequire(path.join(unitDir, "x.js"));
@@ -65,6 +68,43 @@ const unitDir = mkdtempSync(path.join(os.tmpdir(), "cms-email-link-"));
   process.env.ADMIN_EMAIL = "someone-else@example.invalid";
   check("changing ADMIN_EMAIL cancels links sent to the old address", L.redeemLinkToken(d, t0 + 1000) === null);
   check("a malformed token is refused", L.redeemLinkToken("../../x", t0) === null);
+  process.env.ADMIN_EMAIL = "unit@example.invalid";
+  const envNow = req("./env-admin.js").envAdmin();
+  const why = (token, at) => L.consumeLinkToken(token, at);
+  check("refusal reason: no token at all → missing; a wrong shape → malformed", why(undefined, t0).reason === "missing" && why("", t0).reason === "missing" && why("../../x", t0).reason === "malformed");
+  check("refusal reason: a well-formed token that was never issued → unknown", why("B".repeat(43), t0).reason === "unknown");
+  const u1 = L.issueLinkToken(envNow, t0, "attempt0001");
+  const usedOnce = why(u1, t0 + 1000);
+  check("a link carries its login attempt id to the moment it is used", usedOnce.ok === true && usedOnce.attempt === "attempt0001");
+  check("refusal reason: the same link again → already_used (with its attempt id)", why(u1, t0 + 2000).reason === "already_used" && why(u1, t0 + 2000).attempt === "attempt0001");
+  const r1 = L.issueLinkToken(envNow, t0);
+  L.keepOnlyNewestLink(envNow, r1);
+  const r2 = L.issueLinkToken(envNow, t0 + 1000);
+  check("keepOnlyNewestLink says how many older links it cancelled", L.keepOnlyNewestLink(envNow, r2) === 1);
+  check("refusal reason: a link replaced by a newer email → replaced", why(r1, t0 + 2000).reason === "replaced");
+  const e1 = L.issueLinkToken(envNow, t0);
+  check("refusal reason: a link used after 15 minutes → expired, and it stays expired", why(e1, t0 + 16 * 60 * 1000).reason === "expired" && why(e1, t0 + 16 * 60 * 1000 + 1).reason === "expired");
+  const e2 = L.issueLinkToken(envNow, t0);
+  L.issueLinkToken(envNow, t0 + 16 * 60 * 1000); // the clean-up when the next link is issued
+  check("refusal reason: an expired link removed by the clean-up → still expired, not unknown", why(e2, t0 + 16 * 60 * 1000 + 5).reason === "expired");
+  const c1 = L.issueLinkToken(envNow, t0);
+  process.env.ADMIN_EMAIL = "someone-else@example.invalid";
+  check("refusal reason: ADMIN_EMAIL changed since the link was sent → admin_changed", why(c1, t0 + 1000).reason === "admin_changed");
+  process.env.ADMIN_EMAIL = "unit@example.invalid";
+  check("…and that link still does not work afterwards", why(c1, t0 + 2000).ok === false);
+  const spentFiles = readdirSync(path.join(unitDir, "records", "spent"));
+  check("the notes about spent links are named by hashes only and hold no token", spentFiles.every((f) => /^[0-9a-f]{64}\.json$/.test(f)) && ![u1, r1, e1, e2, c1].some((t) => spentFiles.some((f) => f.includes(t)) || spentFiles.some((f) => readFileSync(path.join(unitDir, "records", "spent", f), "utf8").includes(t))));
+  const lines = [];
+  const orig = { info: console.info, warn: console.warn, error: console.error };
+  console.info = console.warn = console.error = (line) => lines.push(String(line));
+  const Log = req("./log.js");
+  const fakeToken = "Q".repeat(43);
+  Log.logEvent("CMS_AUTH", "token_created", { rid: "abc123def456", attempt: "att000000001", outcome: "success", status: 200, ms: 12, msg: `link https://customswise.ie/admin-blog/auth#${fakeToken} for someone.admin@example.com with re_fake_key_abcdefgh123 and mongodb+srv://user:pw@cluster.example/db and bare ${fakeToken}` });
+  Log.logEvent("CMS_AUTH", "x", { token: fakeToken, cookie_value: "e.abc", session_id: "s", api_key: "re_x", password: "p" });
+  Object.assign(console, orig);
+  check("log line: UTC ISO time, [CMS_AUTH], the event, rid, env, outcome, status and ms", /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z \[CMS_AUTH\] token_created rid=abc123def456 env=(production|development) outcome=success attempt=att000000001 status=200 ms=12 msg=/.test(lines[0] ?? ""), lines[0]);
+  check("log line: a sign-in link, a bare token, an API key, a connection string and a full address are all removed", !lines[0].includes(fakeToken) && !lines[0].includes("re_fake_key") && !lines[0].includes("mongodb+srv") && !lines[0].includes("someone.admin@") && lines[0].includes("[sign-in link]") && lines[0].includes("s••••••••••••@example.com"), lines[0]);
+  check("log line: fields named token, cookie, session id, API key or password are refused whatever they hold", /token=\[refused\]/.test(lines[1]) && /cookie_value=\[refused\]/.test(lines[1]) && /session_id=\[refused\]/.test(lines[1]) && /api_key=\[refused\]/.test(lines[1]) && /password=\[refused\]/.test(lines[1]) && !lines[1].includes(fakeToken), lines[1]);
   process.env.NODE_ENV = "production";
   process.env.CMS_PUBLIC_URL = "https://customswise.ie";
   check("production: links use CMS_PUBLIC_URL, never the request's host", L.linkBaseUrl("https://evil.example/admin-blog/api/auth/link") === "https://customswise.ie");
@@ -134,6 +174,11 @@ const provider = createServer((req, res) => {
       return reply(404, { name: "not_found", message: "Email not found" });
     }
     if (mode === "drop") return req.socket.destroy();
+    if (mode === "hang") {
+      // Takes the email (it may be delivered) but answers too late: the website gives up first.
+      outbox.push({ auth: req.headers.authorization, ...JSON.parse(body || "{}") });
+      return setTimeout(() => reply(200, { id: ID(outbox.length) }), 4000);
+    }
     if (REFUSALS[mode]) return reply(...REFUSALS[mode]);
     outbox.push({ auth: req.headers.authorization, ...JSON.parse(body || "{}") });
     reply(200, { id: ID(outbox.length) });
@@ -182,6 +227,16 @@ start(3338, {}); // provider failures
 start(3339, { EMAIL_FROM: '"Customs Wise Website" <onboarding@resend.dev>' }); // Resend's shared test sender
 start(3340, { CMS_EMAIL_FROM: "Customs Wise CMS <cms@customswise-test.example>" }); // the verified-domain switch
 start(3341, { CMS_PUBLIC_URL: "http://localhost:3000" }); // a production server misconfigured with a local address
+start(3342, { CMS_EMAIL_TIMEOUT_MS: "1500" }); // the provider answers too late
+const NOT_A_FOLDER = path.join(serverDir, "not-a-folder");
+writeFileSync(NOT_A_FOLDER, "a file where the sign-in folder should be");
+start(3343, { CMS_AUTH_DIR: NOT_A_FOLDER }); // sign-in records cannot be written
+start(3344, { BLOG_SOURCE: "cms" }); // the public blog from the CMS, with the database down
+const BLOCKED_SESSIONS = path.join(serverDir, "blocked-sessions");
+mkdirSync(BLOCKED_SESSIONS);
+writeFileSync(path.join(BLOCKED_SESSIONS, "session"), "a file where the session folder should be");
+start(3346, { CMS_AUTH_DIR: BLOCKED_SESSIONS }); // links work, sessions cannot be stored
+start(3345, { BLOG_SOURCE: "cms", CMS_STORE: "json", CMS_DATA_DIR: path.join(serverDir, "empty-cms") }); // …and with a CMS that has no articles
 const ip = () => `10.3.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
 async function http(port, p, { method = "GET", body, cookie, origin = `http://127.0.0.1:${port}`, host, xff = ip() } = {}) {
   const h = { "X-Forwarded-For": xff };
@@ -344,6 +399,101 @@ try {
   }
   check("after a restart, an existing session is still valid", (await http(3334, "/admin-blog/account", { cookie: raceCookie })).status === 200);
 
+  console.log("\nStructured log lines ([CMS_AUTH] / [CMS_DB]) and request ids");
+  const logged = (port, event) => logs[port].split(/\r?\n/).filter((l) => l.includes(`[CMS_AUTH] ${event} `) || l.includes(`[CMS_DB] ${event} `));
+  const field = (line, name) => line?.match(new RegExp(`\\b${name}=([^\\s]+)`))?.[1];
+  const sendR = await send(3338);
+  const rid = sendR.data.requestId;
+  check("the answer carries a request id, also as the X-Request-Id header", /^[0-9a-f]{12}$/.test(rid ?? "") && sendR.headers.get("x-request-id") === rid);
+  const ofRid = logs[3338].split(/\r?\n/).filter((l) => l.includes(`rid=${rid} `));
+  const events = ofRid.map((l) => l.split(" ")[2]);
+  check("one send, in order: request_received → email_validation → configuration_check → token_created → token_persisted → email_send_started → email_provider_accepted → request_completed",
+    JSON.stringify(events.filter((e) => ["request_received", "email_validation", "configuration_check", "token_created", "token_persisted", "email_send_started", "email_provider_accepted", "request_completed"].includes(e))) === JSON.stringify(["request_received", "email_validation", "configuration_check", "token_created", "token_persisted", "email_send_started", "email_provider_accepted", "request_completed"]), events.join(","));
+  check("every line: UTC ISO time, env=production, an outcome", ofRid.length > 0 && ofRid.every((l) => /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z \[CMS_AUTH\] \w+ rid=[0-9a-f]{12} env=production outcome=(success|failure|rejected|info)/.test(l)));
+  const acceptedLine = ofRid.find((l) => l.includes(" email_provider_accepted "));
+  check("the provider's acceptance: status=200, ms, the provider id, and 'Accepted is not yet delivered'", field(acceptedLine, "status") === "200" && /^\d+$/.test(field(acceptedLine, "ms") ?? "") && field(acceptedLine, "provider_id")?.startsWith("aaaaaaaa-") && /Accepted is not yet delivered/.test(acceptedLine));
+  check("the send's duration is logged on completion", /^\d+$/.test(field(ofRid.find((l) => l.includes(" request_completed ")), "ms") ?? ""));
+  const attemptId = field(ofRid.find((l) => l.includes(" token_created ")), "attempt");
+  const v = await verify(3338, tokenOf(linkOf(outbox.at(-1))));
+  const vLines = logs[3338].split(/\r?\n/).filter((l) => l.includes(`rid=${v.data.requestId} `));
+  check("using the link: verification_started → token_consumed → session_created → session_cookie_set → dashboard_redirect, under the SAME attempt id as the send",
+    JSON.stringify(vLines.map((l) => l.split(" ")[2]).filter((e) => ["verification_started", "token_consumed", "session_created", "session_cookie_set", "dashboard_redirect"].includes(e))) === JSON.stringify(["verification_started", "token_consumed", "session_created", "session_cookie_set", "dashboard_redirect"]) && !!attemptId && field(vLines.find((l) => l.includes(" token_consumed ")), "attempt") === attemptId);
+  const cookieLine = vLines.find((l) => l.includes(" session_cookie_set "));
+  check("session_cookie_set says how the cookie was set (never its value)", /name=__Secure-cw_admin/.test(cookieLine) && /http_only=true/.test(cookieLine) && /secure=true/.test(cookieLine) && /same_site=strict/.test(cookieLine) && /path=\/admin-blog/.test(cookieLine) && !cookieLine.includes(v.cookie?.split("=")[1] ?? "@@"));
+  if (process.argv.includes("--show-log")) console.log(["", `    --- log lines of one send (rid ${rid}) and the use of its link (rid ${v.data.requestId}) ---`, ...[...ofRid, ...vLines].map((l) => `    ${l}`), ""].join("\n"));
+  check("dashboard_redirect names where the browser goes", /to=\/admin-blog\/sites\/customs-wise/.test(vLines.find((l) => l.includes(" dashboard_redirect ")) ?? ""));
+  const again2 = await verify(3338, tokenOf(linkOf(outbox.at(-1))));
+  check("the same link again: token_validation_failed code=already_used, same attempt id", field(logged(3338, "token_validation_failed").find((l) => l.includes(`rid=${again2.data.requestId} `)), "code") === "already_used" && logged(3338, "token_validation_failed").some((l) => l.includes(`rid=${again2.data.requestId} `) && l.includes(`attempt=${attemptId}`)));
+  const made = await verify(3338, "C".repeat(43));
+  const bad = await verify(3338, "short");
+  const none = await http(3338, "/admin-blog/api/auth/link", { method: "POST", body: { action: "verify" } });
+  const codeOf = (r) => field(logged(3338, "token_validation_failed").find((l) => l.includes(`rid=${r.data.requestId} `)), "code");
+  check("a token never issued → code=unknown; a wrong shape → malformed; none at all → missing", codeOf(made) === "unknown" && codeOf(bad) === "malformed" && codeOf(none) === "missing", `${codeOf(made)} ${codeOf(bad)} ${codeOf(none)}`);
+  check("all of them: 400 with the same message for the person", [made, bad, none].every((r) => r.status === 400 && /expired or has already been used/.test(r.data.message ?? "")));
+  const crossSite = await send(3338, { origin: "https://evil.example" });
+  check("a request from another website: request_rejected code=cross_origin, status=403", /code=cross_origin/.test(logged(3338, "request_rejected").find((l) => l.includes(`rid=${crossSite.data.requestId} `)) ?? ""));
+
+  console.log("\nThe provider answers too late (timeout)");
+  const beforeHang = outbox.length;
+  mode = "hang";
+  const late = await send(3342);
+  mode = "ok";
+  check("503 'provider-timeout', and the person is told the email may still arrive", late.status === 503 && late.data.reason === "provider-timeout" && /may still arrive/.test(late.data.message ?? ""), `${late.status} ${late.data.reason}`);
+  check("the log: email_send_failed code=provider-timeout with how long it waited", logged(3342, "email_send_failed").some((l) => /code=provider-timeout/.test(l) && /ms=\d+/.test(l)));
+  check("the email that may have gone out keeps a working link", outbox.length === beforeHang + 1 && (await verify(3342, tokenOf(linkOf(outbox.at(-1))))).status === 200);
+
+  console.log("\nSign-in records cannot be written");
+  const sentBeforeStore = outbox.length;
+  const noStore = await send(3343);
+  check("503 'not available', no email sent, no link", noStore.status === 503 && /not available/.test(noStore.data.message ?? "") && outbox.length === sentBeforeStore);
+  check("the log: auth_store_failed with the error code, and the request completes as a failure", logged(3343, "auth_store_failed").some((l) => /code=E[A-Z]+/.test(l)) && logged(3343, "request_completed").some((l) => /status=503/.test(l)));
+  const h3343 = await http(3343, "/admin-blog/api/health");
+  check("the health check says the sign-in store is not writable, without saying where", h3343.data.signInStore === "not-writable" && !h3343.text.includes(serverDir) && !h3343.text.includes("not-a-folder"));
+
+  console.log("\nA link that works, but the session cannot be stored");
+  await send(3346);
+  const noSession = await verify(3346, tokenOf(linkOf(outbox.at(-1))));
+  check("503 'not available', no session cookie", noSession.status === 503 && !noSession.cookie, `${noSession.status}`);
+  check("the log: token_consumed, then session_create_failed code=auth_store (not a token problem)", logged(3346, "token_consumed").length === 1 && logged(3346, "session_create_failed").some((l) => /code=auth_store/.test(l)) && logged(3346, "token_validation_failed").length === 0);
+
+  console.log("\nThe health check (public: names and statuses only)");
+  const sentBeforeHealth = outbox.length;
+  const h = await http(3331, "/admin-blog/api/health");
+  check("app running; database down → 503, reason unreachable, with the kind of failure", h.status === 503 && h.data.app === "running" && h.data.database?.ok === false && h.data.database?.reason === "unreachable" && typeof h.data.database?.kind === "string", JSON.stringify(h.data.database));
+  check("email sign-in: ready, with each part named", h.data.emailSignIn?.ready === true && h.data.emailSignIn.adminEmail === "set" && h.data.emailSignIn.apiKey === "set" && h.data.emailSignIn.sender === "own-domain" && h.data.emailSignIn.linkAddress === "ok");
+  check("blog source and sign-in store are reported", h.data.blogSource === (process.env.BLOG_SOURCE?.trim().toLowerCase() === "cms" ? "cms" : "static") && h.data.signInStore === "writable");
+  check("never a value: no key, no address, no connection string, no path", !h.text.includes(API_KEY) && !h.text.includes(READ_KEY) && !h.text.includes(ADMIN) && !h.text.includes("mongodb://") && !h.text.includes("27999") && !h.text.includes(serverDir) && !h.text.includes("cms-test-3331"));
+  const hNoKey = await http(3332, "/admin-blog/api/health");
+  check("a missing setting is named: EMAIL_API_KEY", hNoKey.data.settings?.missing?.includes("EMAIL_API_KEY") && hNoKey.data.emailSignIn?.apiKey === "missing" && hNoKey.data.emailSignIn?.ready === false);
+  check("Resend's test sender is named as such", (await http(3339, "/admin-blog/api/health")).data.emailSignIn?.sender?.startsWith("resend-test-sender"));
+  check("a local site address: link address not usable", (await http(3341, "/admin-blog/api/health")).data.emailSignIn?.linkAddress === "missing-or-not-https");
+  check("the health check sent no email", outbox.length === sentBeforeHealth);
+  check("[CMS_DB] connection_failed is logged with the kind, a duration and no connection string", logged(3331, "connection_failed").some((l) => /code=\w/.test(l) && /ms=\d+/.test(l) && !l.includes("mongodb://") && !l.includes("27999")));
+  const failuresBefore = logged(3331, "connection_failed").length;
+  for (let i = 0; i < 3; i++) await http(3331, "/admin-blog/api/health");
+  const during = logged(3331, "connection_failed").slice(failuresBefore);
+  check("repeated failures are not logged on every request: at most one line for 3 failing requests, and a later line counts the ones left out", during.length <= 1 && (during.length === 0 || Number(field(during[0], "suppressed") ?? 0) >= 1 || failuresBefore === 0), `${failuresBefore} → ${logged(3331, "connection_failed").length}: ${logged(3331, "connection_failed").map((l) => `${l.slice(11, 19)} ${field(l, "code")} ${field(l, "suppressed") ?? ""}`).join(" | ")}`);
+
+  console.log("\nThe dashboard with the database down");
+  await send(3331);
+  const dashSession = (await verify(3331, tokenOf(linkOf(outbox.at(-1))))).cookie;
+  const dash = await http(3331, "/admin-blog/sites/customs-wise", { cookie: dashSession });
+  // The message itself ("This screen could not be loaded…", app/admin-blog/error.tsx) is drawn by the browser.
+  check("signed in, but the screen cannot load: a server error (500), not the 404 page and not the sign-in page", dash.status === 500 && !toLogin(dash), `${dash.status} ${(dash.text.match(/<h1[^>]*>([^<]*)/) ?? [])[1] ?? ""} ${(dash.text.match(/<title>([^<]*)/) ?? [])[1] ?? ""}`);
+  check("the log: dashboard_load_failed with the screen and the reason", logged(3331, "dashboard_load_failed").some((l) => /screen=site/.test(l) && /code=unreachable/.test(l)));
+
+  console.log("\nThe public blog: database down versus no articles");
+  const downList = await http(3344, "/blog");
+  const downMissing = await http(3344, "/insights/blog/zz-only-in-the-cms");
+  check("database down: /blog still shows the built-in articles (200)", downList.status === 200 && /insights\/blog\//.test(downList.text));
+  check("database down: an address that may be a CMS article is a server error (500), never the 404 page", downMissing.status === 500, `${downMissing.status}`);
+  const emptyList = await http(3345, "/blog");
+  const emptyMissing = await http(3345, "/insights/blog/zz-only-in-the-cms");
+  check("CMS reachable but without articles: /blog shows the built-in articles (200)", emptyList.status === 200 && /insights\/blog\//.test(emptyList.text));
+  check("the health check says where the public blog gets its articles: built-in fallback while the database is down, the CMS when it answers", /^built-in fallback/.test((await http(3344, "/admin-blog/api/health")).data.publicBlog ?? "") && (await http(3345, "/admin-blog/api/health")).data.publicBlog === "cms");
+  check("…and an address that is not an article is a real 404", emptyMissing.status === 404 && /on the manifest/i.test(emptyMissing.text), `${emptyMissing.status}`);
+  check("the two cases are told apart: the log says the CMS could not be read, and the health check says which database answered", /The CMS could not be read/.test(logs[3344]) && (await http(3344, "/admin-blog/api/health")).data.database?.ok === false && (await http(3345, "/admin-blog/api/health")).data.database?.ok === true);
+
   console.log("\nnpm run cms:email-status (reads only)");
   const sentBeforeStatus = outbox.length;
   // Not execFileSync: it would block this process, where the fake provider has to answer.
@@ -383,6 +533,7 @@ try {
   console.log("\nSecrets");
   check("no server log contains a token, the sending key or the read key", Object.values(logs).every((l) => !l.includes(API_KEY) && !l.includes(READ_KEY) && !outbox.some((m) => l.includes(tokenOf(linkOf(m))))));
   check("no full sign-in link appears in any server log", Object.values(logs).every((l) => !/\/admin-blog\/auth#[A-Za-z0-9_-]{43}/.test(l)));
+  check("no server log contains the administrator's full address or a session token", Object.values(logs).every((l) => !l.includes(ADMIN) && !/\be\.[A-Za-z0-9_-]{43}\b/.test(l)));
 } finally {
   provider.close();
   for (const s of Object.values(servers)) {

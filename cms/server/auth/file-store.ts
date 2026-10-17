@@ -2,6 +2,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { logEvent } from "../log";
 
 /**
  * Sign-in records of the administrator from the server settings (email links and sessions), kept as small files so
@@ -12,7 +13,7 @@ import path from "node:path";
  * take() is the single-use step: it renames the file first, which only one process can do, then reads it.
  */
 
-export type RecordKind = "session" | "link";
+export type RecordKind = "session" | "link" | "spent";
 export class AuthStoreError extends Error {}
 
 const ID = /^[0-9a-f]{64}$/;
@@ -29,9 +30,24 @@ function folder(kind: RecordKind): string {
 }
 
 function fail(action: string, err: unknown): AuthStoreError {
-  // Names the operation and the error code, never a token.
-  console.error(`[auth] Could not ${action} a sign-in record in ${root()}: ${(err as NodeJS.ErrnoException)?.code ?? "error"}`);
+  // Names the operation and the error code, never a token. The folder is named in the server log only.
+  const code = (err as NodeJS.ErrnoException)?.code ?? "error";
+  logEvent("CMS_AUTH", "auth_store_failed", { outcome: "failure", code, action, msg: `Could not ${action} a sign-in record in ${root()} (${code}). Check that CMS_AUTH_DIR (or .cms-data/auth in the app folder) exists, is writable by the Node.js process and is kept between deployments.` });
   return new AuthStoreError("The sign-in records could not be read or written.");
+}
+
+/** For the health check: can sign-in records be written right now? Yes or no, never where. */
+export function authStoreWritable(): boolean {
+  try {
+    const dir = path.join(root(), "probe");
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const probe = path.join(dir, `${randomBytes(6).toString("hex")}.tmp`);
+    writeFileSync(probe, "1", { mode: 0o600 });
+    rmSync(probe, { force: true });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const file = (kind: RecordKind, id: string) => {

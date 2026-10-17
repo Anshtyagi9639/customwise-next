@@ -20,6 +20,8 @@ export class StoreUnavailableError extends Error {
   constructor(
     message = "The content database could not be reached.",
     public readonly reason: "not-configured" | "unreachable" = "unreachable",
+    /** The category from mongo-failure.ts (authentication, network-access, dns, …), when known. Safe to show. */
+    public readonly kind?: string,
   ) {
     super(message);
     this.name = "StoreUnavailableError";
