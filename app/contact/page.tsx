@@ -32,7 +32,7 @@ export default async function ContactPage({ searchParams }: ContactPageProps) {
   return (
     <>
       <JsonLd data={[webPageSchema("/contact", title, description, "ContactPage"), breadcrumbSchema([{ name: "Contact", path: "/contact" }])]} />
-      <PageHero title="Contact Customs Wise" intro="Send an enquiry, call the team, or visit one of our four offices." trail={[{ name: "Contact", path: "/contact" }]}>
+      <PageHero title="Contact Customs Wise" intro="Send an enquiry, call the team, or visit one of our five offices." trail={[{ name: "Contact", path: "/contact" }]}>
         <ul className="mt-9 grid gap-3.5 sm:grid-cols-3">
           {methods.map((m) => {
             const Icon = m.icon;

@@ -57,6 +57,14 @@ export const offices: Office[] = [
     countryCode: "IN",
   },
   {
+    city: "Dehradun",
+    lines: ["DDPM Boulevard, Haridwar Bypass", "Ajabpur Kalan", "Dehradun, India"],
+    street: "DDPM Boulevard, Haridwar Bypass, Ajabpur Kalan",
+    locality: "Dehradun",
+    country: "India",
+    countryCode: "IN",
+  },
+  {
     city: "Morocco",
     lines: ["39 Av. Sanhaja", "Tangier 90060", "Morocco"],
     street: "39 Av. Sanhaja",

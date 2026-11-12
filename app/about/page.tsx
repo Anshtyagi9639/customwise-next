@@ -53,7 +53,7 @@ export default function AboutPage() {
       <JsonLd data={[webPageSchema("/about", title, description, "AboutPage"), breadcrumbSchema([{ name: "About", path: "/about" }])]} />
       <PageHero
         title="About Customs Wise"
-        intro="Independent customs experts in the UK and Ireland, keeping customs simple for importers, exporters and their freight partners."
+        intro="Independent customs experts in the UK and Ireland, keeping customs simple for importers, exporters and freight partners."
         trail={[{ name: "About", path: "/about" }]}
         image={images.inspector}
       />
