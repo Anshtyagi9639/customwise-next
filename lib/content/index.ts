@@ -183,6 +183,8 @@ export const insights: (Guide & { image: ImageAsset })[] = [
   { href: "/insights/cbam", title: "CBAM for UK and Irish importers", tag: "Carbon pricing", category: "trade-compliance", summary: "Covered goods, thresholds and what changes in 2026 and 2027.", image: images.steel },
   { href: "/insights/eudr", title: "EUDR explained", tag: "Due diligence", category: "trade-compliance", summary: "Which commodities are in scope and how the due diligence statement works.", image: images.forest },
   { href: "/insights/incoterms", title: "Incoterms® 2020 and customs", tag: "Trade terms", category: "trade-compliance", summary: "Who declares, who pays duty and VAT, and how terms affect valuation.", image: images.shipPlane },
+  { href: "/insights/vehicle-import-export", title: "Importing and exporting vehicles", tag: "Vehicles", category: "trade-compliance", summary: "Customs, NOVA, VRT and registration for vehicles moving between GB, Northern Ireland and Ireland.", image: images.cars },
+  { href: "/insights/temporary-admission", title: "Temporary admission and returned goods relief", tag: "Customs procedures", category: "trade-compliance", summary: "Temporary admission, returned goods relief, inward and outward processing and ATA carnets.", image: images.pallets },
 ];
 
 /** Insight categories. To publish a new article: add its page under app/, then add an entry to the list for its category. */

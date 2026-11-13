@@ -115,6 +115,8 @@ export const mainNav: NavItem[] = [
       { label: "CBAM for UK and Irish importers", href: "/insights/cbam" },
       { label: "EUDR explained", href: "/insights/eudr" },
       { label: "Incoterms® 2020 and customs", href: "/insights/incoterms" },
+      { label: "Importing and exporting vehicles", href: "/insights/vehicle-import-export" },
+      { label: "Temporary admission and returned goods", href: "/insights/temporary-admission" },
     ],
   },
   { kind: "link", label: "Blog", href: "/blog" },

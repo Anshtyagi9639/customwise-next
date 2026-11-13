@@ -16,6 +16,8 @@ const routes: { path: string; priority: number; changeFrequency: MetadataRoute.S
   { path: "/insights/cbam", priority: 0.7, changeFrequency: "monthly" },
   { path: "/insights/eudr", priority: 0.7, changeFrequency: "monthly" },
   { path: "/insights/incoterms", priority: 0.7, changeFrequency: "monthly" },
+  { path: "/insights/vehicle-import-export", priority: 0.7, changeFrequency: "monthly" },
+  { path: "/insights/temporary-admission", priority: 0.7, changeFrequency: "monthly" },
   { path: "/faqs", priority: 0.6, changeFrequency: "monthly" },
   { path: "/contact", priority: 0.8, changeFrequency: "yearly" },
 ];

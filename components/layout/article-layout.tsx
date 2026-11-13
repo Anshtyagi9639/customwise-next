@@ -59,6 +59,8 @@ export const insightsAside = {
       { label: "CBAM for UK and Irish importers", href: "/insights/cbam" },
       { label: "EUDR explained", href: "/insights/eudr" },
       { label: "Incoterms® 2020 and customs", href: "/insights/incoterms" },
+      { label: "Importing and exporting vehicles", href: "/insights/vehicle-import-export" },
+      { label: "Temporary admission and returned goods", href: "/insights/temporary-admission" },
       { label: "Importing POAO", href: "/food-customs/products-of-animal-origin" },
       { label: "Customs services", href: "/services" },
       { label: "Food customs", href: "/food-customs" },
